@@ -47,6 +47,7 @@ set(SOURCES "audio/audio_codec.cc"
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
 
+# ACOS 宏开关控制协议配置生成；输出仅供当前构建使用，token 不写公共源码。
 if(CONFIG_USE_ACOS)
     # 私密配置只生成到 build；不会进入版本库，也不写进公共 Kconfig 默认值。
     set(ACOS_LOCAL_CONFIG "${PROJECT_DIR}/.local/acos.json")
@@ -1260,6 +1261,8 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND CONFIG_FLASH_EXPRESSION_ASSETS)
         if(NOT ESP_VOCAT_SPEAKER_RESULT EQUAL 0)
             message(FATAL_ERROR "Failed to prepare VoCat playback icon")
         endif()
+        # 表情资源包同时包含唤醒模型；必须与 sdkconfig 对齐，防止界面文字与模型不一致。
+        # staging 中的图标/模型替换不会改 managed_components 内的供应商原文件。
         # The expression bundle must use the configured model, not the vendor's bundled wake word.
         execute_process(
             COMMAND ${PYTHON} "${PROJECT_DIR}/scripts/prepare_vocat_wake_assets.py"

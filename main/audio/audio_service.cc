@@ -45,6 +45,8 @@ AudioService::~AudioService() {
     }
 }
 
+// 创建 Opus 编解码和重采样器。网络语音为 16 kHz，VoCat 硬件为 24 kHz；
+// 输入重采样必须保留麦克风及回采通道的交错顺序，之后再交给 AFE。
 void AudioService::Initialize(AudioCodec* codec) {
     codec_ = codec;
     codec_->Start();
@@ -115,6 +117,8 @@ void AudioService::Initialize(AudioCodec* codec) {
     esp_timer_create(&audio_power_timer_args, &audio_power_timer_);
 }
 
+// 启动采集、播放、Opus 三个独立任务；AFE 另有结果处理任务。
+// 采集优先级高于编解码，避免网络或播放波动造成输入漏帧。
 void AudioService::Start() {
     service_stopped_.store(false);
     xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING |
@@ -171,6 +175,7 @@ void AudioService::Start() {
         "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
 }
 
+// 置停止标志并唤醒等待队列/事件的工作任务；由任务循环自行退出。
 void AudioService::Stop() {
     esp_timer_stop(audio_power_timer_);
     service_stopped_.store(true);
@@ -193,6 +198,7 @@ void AudioService::Stop() {
     }
 }
 
+// samples 是每通道采样点数，不是字节数；data 保存 int16_t 交错多通道 PCM。
 bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples) {
     if (!codec_->input_enabled()) {
         esp_timer_stop(audio_power_timer_);
@@ -240,6 +246,8 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     return true;
 }
 
+// 输入任务负责 ADC 的启停，避免其他任务在 InputData 阻塞时关闭同一设备。
+// 每次向引擎喂入 10 ms 数据；唤醒、对话和测试任一模式开启即继续采集。
 void AudioService::AudioInputTask() {
     constexpr EventBits_t kAudioInputActiveBits = AS_EVENT_AUDIO_TESTING_RUNNING |
                                                   AS_EVENT_WAKE_WORD_RUNNING |
@@ -324,6 +332,8 @@ void AudioService::AudioInputTask() {
     ESP_LOGW(TAG, "Audio input task stopped");
 }
 
+// 取出 PCM 后释放队列锁再写硬件；output_in_flight_ 防止队列暂空时提前报告结束。
+// 播放进度用于通知字幕对齐，表示本次提交的媒体位置。
 void AudioService::AudioOutputTask() {
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
@@ -379,6 +389,8 @@ void AudioService::AudioOutputTask() {
     ESP_LOGW(TAG, "Audio output task stopped");
 }
 
+// 同一任务轮流处理下行解码与上行编码，避免为两条链路再增加大栈任务。
+// 解码前记录 playback_generation_，打断清队列后不得将旧结果重新放回播放队列。
 void AudioService::OpusCodecTask() {
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
@@ -530,6 +542,7 @@ void AudioService::OpusCodecTask() {
     ESP_LOGW(TAG, "Opus codec task stopped");
 }
 
+// 下行包声明的采样率/帧长变化时重建解码器及输出重采样器。
 void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
     if (decoder_sample_rate_ == sample_rate && decoder_duration_ms_ == frame_duration) {
         return;
@@ -567,6 +580,7 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
     }
 }
 
+// 实时采集不能等待网络：编码队列满时丢最旧帧，并限频记录日志。
 void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm) {
     AudioTask task;
     task.type = type;
@@ -664,6 +678,7 @@ std::unique_ptr<AudioStreamPacket> AudioService::PopWakeWordPacket() {
     return nullptr;
 }
 
+// 按需初始化引擎，并控制输入事件位和引擎中的本地唤醒检测。
 void AudioService::EnableWakeWordDetection(bool enable) {
     ESP_LOGD(TAG, "%s wake word detection", enable ? "Enabling" : "Disabling");
     if (enable) {
@@ -712,6 +727,8 @@ void AudioService::ReleaseWakeWordResources() {
 #endif
 }
 
+// 开启对话处理会清下行、预热输入并重置重采样状态。
+// 连续对话的普通打断应保持本链路运行，反复重启会损失句首且破坏 AEC 连续性。
 void AudioService::EnableVoiceProcessing(bool enable) {
     ESP_LOGD(TAG, "%s voice processing", enable ? "Enabling" : "Disabling");
 
@@ -767,6 +784,7 @@ void AudioService::EnableDeviceAec(bool enable) {
 
 void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) { callbacks_ = callbacks; }
 
+// 本地 Ogg 提示音拆成 Opus 包后复用下行解码链路；没有另存为音频文件。
 void AudioService::PlaySound(const std::string_view& ogg) {
     if (!codec_->output_enabled()) {
         esp_timer_stop(audio_power_timer_);
@@ -836,6 +854,8 @@ bool AudioService::MarkPlaybackDrainedLocked() {
     return true;
 }
 
+// 空闲 15 秒申请关闭音频硬件。RX/TX 共用时钟时需保留正在采集所依赖的 TX；
+// ADC 关闭申请交给输入任务执行，避免与阻塞采集并发。
 void AudioService::CheckAndUpdateAudioPowerState() {
     auto now = std::chrono::steady_clock::now();
     auto input_elapsed =

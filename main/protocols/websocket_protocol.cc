@@ -16,11 +16,14 @@ WebsocketProtocol::WebsocketProtocol() { event_group_handle_ = xEventGroupCreate
 
 WebsocketProtocol::~WebsocketProtocol() { vEventGroupDelete(event_group_handle_); }
 
+// 标准小智协议按需连网，Start 本身不建立连接；与 ACOS 的常驻连接策略不同。
 bool WebsocketProtocol::Start() {
     // Only connect to server when audio channel is needed
     return true;
 }
 
+// 版本 2/3 在 Opus 外加二进制包头，多字节字段转为网络字节序；旧版本直接发 Opus。
+// 本实现使用小智 hello/会话消息，不可只换成 ACOS URL 就直接兼容 ACOS。
 bool WebsocketProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     if (websocket_ == nullptr || !websocket_->IsConnected()) {
         return false;
@@ -76,6 +79,8 @@ void WebsocketProtocol::CloseAudioChannel(bool send_goodbye) {
     websocket_.reset();
 }
 
+// 从 NVS 读取小智端点并建立 WebSocket，交换 hello 协商采样率/帧长后才算通道打开。
+// 接收 JSON 回调是同步借用；回调结束会 cJSON_Delete，异步使用必须先复制内容。
 bool WebsocketProtocol::OpenAudioChannel() {
     Settings settings("websocket", false);
     std::string url = settings.GetString("url");

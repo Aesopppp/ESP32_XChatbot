@@ -25,6 +25,8 @@ McpServer::McpServer() {}
 
 McpServer::~McpServer() = default;
 
+// 注册设备能力（查询状态、音量、屏幕等），按板级实际存在的外设添加工具。
+// MCP 是结构化工具调用协议；当前 ACOS 模式不走小智 MCP，不能假定 ACOS 会调用这里。
 void McpServer::AddCommonTools() {
     // *Important* To speed up the response time, we add the common tools to the beginning of
     // the tools list to utilize the prompt cache.
@@ -379,6 +381,8 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
     }
 }
 
+// 验证 JSON-RPC 版本、方法、请求 id 及参数类型，再分派初始化/工具列表/工具调用。
+// json 是借用对象；需要跨任务的数据在 DoToolCall 中转换为独立的参数对象。
 void McpServer::ParseMessage(const cJSON* json, ResponseSender response_sender) {
     // Check JSONRPC version
     auto version = cJSON_GetObjectItem(json, "jsonrpc");
@@ -561,6 +565,8 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
     ReplyResult(id, json, response_sender);
 }
 
+// 根据工具声明验证必填项、类型及范围，复制参数后 Schedule 到应用主循环执行。
+// response_sender 可指定独立回复通道；未提供时复用 Application 的协议发送接口。
 void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments,
                            ResponseSender response_sender) {
     auto tool_iter = std::find_if(tools_.begin(), tools_.end(), [&tool_name](const auto& tool) {

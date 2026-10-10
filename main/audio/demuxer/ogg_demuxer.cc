@@ -36,6 +36,7 @@ void OggDemuxer::Reset()
     memset(ctx_.packet_buf, 0, sizeof(ctx_.packet_buf));
 }
 
+// 按 Opus TOC 解出帧时长和帧数，而不是用网络读取块大小估算播放时间。
 int OggDemuxer::GetOpusPacketDurationMs(const uint8_t* data, size_t size) {
     if (data == nullptr || size == 0) {
         return -1;
@@ -78,6 +79,7 @@ int OggDemuxer::GetOpusPacketDurationMs(const uint8_t* data, size_t size) {
     return packet_duration_us / 1000;
 }
 
+// HTTP EOF 只表示下载结束；必须验证头、标签、单声道及最后一页是否完整。
 bool OggDemuxer::Finish() const {
     return !has_error_ && opus_info_.head_seen && opus_info_.tags_seen && opus_info_.mono &&
            packet_count_ > 0 && state_ == ParseState::FIND_PAGE && ctx_.bytes_needed == 4 &&
@@ -88,6 +90,9 @@ bool OggDemuxer::Finish() const {
 /// @param data Input data.
 /// @param size Input size in bytes.
 /// @return Number of bytes processed.
+// 增量状态机：查找 OggS -> 页头 -> 分段表 -> 包体，跨网络块保留解析进度。
+// 一个 HTTP 块可以包含多个包，一个 Opus 包也可能跨页；完整包通过 OnPacket 输出。
+// 这里只拆容器，不解码 PCM；音频解码由 AudioService 完成。
 size_t OggDemuxer::Process(const uint8_t* data, size_t size)
 {
     size_t processed = 0;  // Number of bytes processed

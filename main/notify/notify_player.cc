@@ -27,6 +27,7 @@ NotifyPlayer::NotifyPlayer(AudioService& audio_service) : audio_service_(audio_s
 
 NotifyPlayer::~NotifyPlayer() { Stop(); }
 
+// 同时只允许一条通知；排序字幕后启动下载任务，避免主循环等待 HTTP。
 bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                          uint32_t playback_id, SubtitleCallback subtitle_callback,
                          FinishedCallback finished_callback) {
@@ -76,6 +77,8 @@ bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subt
     return true;
 }
 
+// 标记取消并解除回调，下载任务在后续检查时退出；本函数不强制删除阻塞中的任务。
+// 应用另行 ResetDecoder 清除已经入队的声音。
 void NotifyPlayer::Stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     cancelled_ = true;
@@ -137,6 +140,7 @@ NotifyPlayer::FinishedCallback NotifyPlayer::CompleteLocked(uint32_t& playback_i
     return finished_callback_;
 }
 
+// 下载完成且播放耗尽才报成功；下载尚未完成时队列空表示断流，不是通知结束。
 void NotifyPlayer::OnPlaybackDrained() {
     FinishedCallback callback;
     uint32_t playback_id = 0;
@@ -171,6 +175,8 @@ void NotifyPlayer::WorkerEntry(void* arg) {
     vTaskDelete(nullptr);
 }
 
+// 分块读取 HTTP 并拆 Ogg 包，以有界解码队列反压限制内存，不保存完整文件。
+// 下载结束不立即报播放结束，要等待最后一批 PCM 被输出任务消费。
 void NotifyPlayer::WorkerTask() {
     std::string audio_url;
     uint32_t playback_id = 0;

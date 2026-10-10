@@ -43,6 +43,8 @@ void Backlight::RestoreBrightness() {
     SetBrightness(saved_brightness);
 }
 
+// 百分比亮度限制到 0..100；permanent=true 才写 NVS，临时省电变化不覆盖用户设置。
+// 定时器每 5 ms 渐变一级，避免直接跳变造成视觉闪烁。
 void Backlight::SetBrightness(uint8_t brightness, bool permanent) {
     if (brightness > 100) {
         brightness = 100;

@@ -69,6 +69,7 @@ MqttProtocol::~MqttProtocol() {
     }
 }
 
+// 小智的另一种传输：MQTT 长连接承载控制消息，音频通道通过独立 UDP 建立。
 bool MqttProtocol::Start() { return StartMqttClient(false); }
 
 bool MqttProtocol::StartMqttClient(bool report_error) {
@@ -201,6 +202,8 @@ bool MqttProtocol::SendText(const std::string& text) {
     return true;
 }
 
+// 压缩音频经 AES-CTR 加密后发 UDP；nonce 携带长度、时间戳、递增序号。
+// 通道锁只保护快照，实际发送在锁外，防止阻塞网络发送时卡住接收回调。
 bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     constexpr size_t kAudioHeaderSize = 16;
 
@@ -271,6 +274,7 @@ void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
     }
 }
 
+// 通过 MQTT hello 获取会话与 UDP 参数，再创建音频数据通道；关闭 UDP 不必断开 MQTT。
 bool MqttProtocol::OpenAudioChannel() {
     if (mqtt_ == nullptr || !mqtt_->IsConnected()) {
         ESP_LOGI(TAG, "MQTT is not connected, try to connect now");

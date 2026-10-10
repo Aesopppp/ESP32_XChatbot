@@ -9,6 +9,7 @@ import zlib
 SIZE = 30
 
 
+# 将 RGBA 像素写为 PNG 供人工预览；固件实际使用下方生成的 RGB565A8 bin。
 def save_png(path, pixels, size):
     def chunk(kind, content):
         return (struct.pack(">I", len(content)) + kind + content
@@ -26,6 +27,8 @@ def save_png(path, pixels, size):
     )
 
 
+# 30x30 图标：12 字节头 + 1800 字节 RGB565 + 900 字节透明度。
+# 仅替换右侧 x>=17 的区域，左侧喇叭的颜色和透明度原样保留。
 def prepare(source, wave_alpha, output):
     data = Path(source).read_bytes()
     if len(data) != 2712 or data[:8] != bytes.fromhex("190a00001e001e00"):

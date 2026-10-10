@@ -135,6 +135,7 @@ EmoteDisplay::~EmoteDisplay() {
     }
 }
 
+// 根据表情资源名称切动画；不负责更改应用的对话状态。
 void EmoteDisplay::SetEmotion(const char* const emotion) {
     ESP_LOGI(TAG, "SetEmotion: %s", emotion);
     if (emote_handle_ && emotion && strlen(emotion) > 0) {
@@ -159,6 +160,8 @@ void EmoteDisplay::SetChatMessage(const char* const role, const char* const cont
     }
 }
 
+// 应用状态文本映射到 Emote 事件，最终图标由资源包定义。
+// 更换播放图标需重打包图像资源，仅修改状态文字不会改变图标像素。
 void EmoteDisplay::SetStatus(const char* const status) {
     ESP_LOGI(TAG, "SetStatus: %s", status);
     if (emote_handle_ && status && strlen(status) > 0) {
@@ -201,6 +204,7 @@ void EmoteDisplay::SetPreviewImage(const void* image) {
     }
 }
 
+// 从 Flash 分区 mmap 挂载表情资源；资源数据指针只在保持挂载期间有效。
 bool EmoteDisplay::MountAssets(const char* partition_label) {
     if (emote_handle_ == nullptr || partition_label == nullptr) {
         return false;

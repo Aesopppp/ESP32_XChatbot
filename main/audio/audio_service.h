@@ -37,6 +37,8 @@
  *
  */
 
+// ACOS 使用 16 kHz、单声道、20 ms Opus 包；其他协议沿用 60 ms。
+// PCM 队列小而固定，主要缓存放在压缩后的 Opus 队列中，降低内存占用。
 #if CONFIG_USE_ACOS
 #define OPUS_FRAME_DURATION_MS 20
 #else
@@ -83,6 +85,8 @@
         .enable_vbr = true,                                                                    \
     }
 
+// 回调由音频工作任务触发，应用层应通过事件位或 Schedule 切回主循环。
+// on_playback_drained 表示软件队列及处理中任务耗尽，不等同于 DMA 已完全静音。
 struct AudioServiceCallbacks {
     std::function<void(void)> on_send_queue_available;
     std::function<void(const std::string&)> on_wake_word_detected;
@@ -115,6 +119,9 @@ struct DebugStatistics {
     uint32_t encode_drop_count = 0;
 };
 
+// 音频总管：采集 -> AFE -> PCM 编码队列 -> Opus 上传；
+// 下载 Opus -> 解码/重采样 -> PCM 播放队列 -> I2S/功放。
+// codec 是板级提供的借用对象；引擎、编解码器和队列由本类管理。
 class AudioService {
 public:
     AudioService();
@@ -127,6 +134,8 @@ public:
     std::unique_ptr<AudioStreamPacket> PopWakeWordPacket();
     const std::string& GetLastWakeWord() const;
     bool IsVoiceDetected() const { return voice_detected_; }
+    // now 为微秒；只判断最近 150 ms 是否有处理后的采集帧，不代表有人讲话。
+    // 人声检测应使用 IsVoiceDetected，不能把帧持续到达当作 VAD。
     bool HasFreshVoiceInput(int64_t now) const {
         const auto last = last_voice_frame_us_.load();
         return last > 0 && now - last < 150000;
@@ -149,11 +158,15 @@ public:
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
+    // unique_ptr 转移包的所有权。网络主循环使用 wait=false，避免播放反压卡住主循环；
+    // 本地提示音/HTTP 下载任务可使用 wait=true 等待空位。
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     bool CanAcceptDecodePacket();
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
+    // 取消当前下行：清空待解码/待播放数据并递增代次，丢弃正在解码的旧结果。
+    // 不清除麦克风上传队列；已经交给硬件 DMA 的短尾音不受软件清队列控制。
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
 
@@ -187,10 +200,13 @@ private:
     TaskHandle_t audio_input_task_handle_ = nullptr;
     TaskHandle_t audio_output_task_handle_ = nullptr;
     TaskHandle_t opus_codec_task_handle_ = nullptr;
+    // 所有队列和下方 in_flight/代次字段共用此锁；耗时编解码和硬件 I/O 在锁外执行。
     std::mutex audio_queue_mutex_;
     std::condition_variable audio_queue_cv_;
     // Testing records up to AUDIO_TESTING_MAX_DURATION_MS, then swaps into the
     // decode queue. Both queues must share this capacity so swap() is valid.
+    // 实际存储按测试录音帧数预留；正常下行仍受 MAX_DECODE_PACKETS_IN_QUEUE 限制。
+    // 此宏使用 OPUS_FRAME_DURATION_MS；下行包若为 60ms，实际缓存时长需按 60ms 算。
     static constexpr size_t kAudioTestingPacketCapacity =
         AUDIO_TESTING_MAX_DURATION_MS / OPUS_FRAME_DURATION_MS;
     FixedQueue<std::unique_ptr<AudioStreamPacket>, kAudioTestingPacketCapacity> audio_decode_queue_;

@@ -48,6 +48,8 @@ AfeAudioEngine::~AfeAudioEngine() {
     }
 }
 
+// 建立全双工 AFE：从资源模型表选择唤醒模型，将硬件通道组织为 M(麦克风)/R(回采)。
+// 传入模型表由外部管理；自行从 model 分区加载时，本引擎负责释放。
 bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
                                 srmodel_list_t* models_list) {
     if (afe_data_ != nullptr || (codec_ != nullptr && !kUseAfeForVoiceProcessing &&
@@ -147,6 +149,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         return false;
     }
 
+    // 有真实扬声器回采才启用 AEC。VoCat 输入为 MR；R 不应作为第二个麦克风上传。
+    // 全双工低开销模式配合较强非线性抑制，降低设备把自身播放当作用户发声的风险。
+    // NS/AGC 当前关闭；这些参数与硬件增益共同影响打断灵敏度，不能只改 VAD 阈值。
     afe_config->aec_init = codec_->input_reference();
     afe_config->aec_mode = AEC_MODE_FD_LOW_COST;
     afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
@@ -249,6 +254,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     return true;
 }
 
+// 采集任务送来的小块数据先累积，达到 AFE 要求的 chunk 大小再 feed。
+// 输入缓存锁同时协调处理任务的延迟 reset，不能与 reset_buffer 并发。
 void AfeAudioEngine::Feed(std::vector<int16_t>&& data) {
     EventBits_t bits = xEventGroupGetBits(event_group_);
     if ((bits & kVoiceProcessingEnabled) && !kUseAfeForVoiceProcessing) {
@@ -337,6 +344,8 @@ void AfeAudioEngine::OnVadStateChange(std::function<void(bool speaking)> callbac
     vad_state_change_callback_ = std::move(callback);
 }
 
+// 控制任务仅更新标志及代次；fetch/reset/WakeNet/AEC 控制由处理任务统一执行。
+// 否则主任务关闭引擎时，阻塞中的 fetch 可能继续返回旧帧或损坏 AFE 内部缓存。
 void AfeAudioEngine::UpdateActiveState() {
     EventBits_t bits = xEventGroupGetBits(event_group_);
     const bool afe_active =
@@ -372,6 +381,8 @@ void AfeAudioEngine::UpdateAecState() {
     afe_control_dirty_ = true;
 }
 
+// 在 fetch 所属任务中应用控制：检测唤醒词时也使用回采消除提示音回声；
+// 对话处理中则由 device_aec_enabled_ 决定是否启用 AEC。
 void AfeAudioEngine::ApplyAfeControls() {
     EventBits_t bits = xEventGroupGetBits(event_group_);
     if (wake_detector_ == WakeDetector::kWakeNet) {
@@ -403,6 +414,7 @@ void AfeAudioEngine::ApplyPendingReset() {
     afe_iface_->reset_buffer(afe_data_);
 }
 
+// 等待 AFE 活跃后获取结果；代次改变说明该帧跨越了关闭/重启边界，必须丢弃。
 void AfeAudioEngine::ProcessingTask() {
     while (true) {
         xEventGroupWaitBits(event_group_, kAfeActive, pdFALSE, pdTRUE, portMAX_DELAY);
@@ -441,6 +453,7 @@ void AfeAudioEngine::ProcessingTask() {
     }
 }
 
+// 检出后暂停本轮唤醒检测，再通知应用；是否开启对话由应用状态机决定。
 void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     if (wake_detector_ == WakeDetector::kMultiNet) {
         custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
@@ -470,6 +483,9 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     }
 }
 
+// VAD 只在讲话/静音边沿发事件；处理后的 PCM 连同静音仍连续输出给云端 VAD。
+// 不按本地 VAD 裁剪上传，才能保留短句句首并让 ACOS 正确判断一轮讲话结束。
+// AFE 结果块大小不一定等于 Opus 帧长，因此这里重新累积并按 frame_samples_ 切帧。
 void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
     if (output_reset_pending_.exchange(false)) {
         output_buffer_.clear();
@@ -502,6 +518,7 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
     }
 }
 
+// 禁用 AFE 处理时只提取第一个麦克风通道；回采通道不能混入上行。
 void AfeAudioEngine::OutputRawAudio(const std::vector<int16_t>& data) {
     if (!output_callback_ || codec_ == nullptr) {
         return;
@@ -524,6 +541,7 @@ void AfeAudioEngine::OutputRawAudio(const std::vector<int16_t>& data) {
     }
 }
 
+// 可选唤醒音频缓存转 Opus，供支持该功能的协议使用；ACOS 应用路径不上传此缓存。
 void AfeAudioEngine::EncodeWakeWordData() {
     if (wake_detector_ == WakeDetector::kMultiNet) {
         custom_wake_word_->EncodeWakeWordData();

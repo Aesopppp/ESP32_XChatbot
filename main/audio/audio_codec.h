@@ -12,6 +12,7 @@
 
 #include "board.h"
 
+// I2S DMA：6 个描述符，每个 240 帧。调整需兼顾延迟、断流容忍度及内部 DMA 内存。
 #define AUDIO_CODEC_DMA_DESC_NUM 6
 #define AUDIO_CODEC_DMA_FRAME_NUM 240
 
@@ -24,6 +25,8 @@
 #define XIAOZHI_I2S_PORT(port) static_cast<i2s_port_t>(port)
 #endif
 
+// 板级音频硬件抽象，负责 PCM I/O、音量和输入增益，不负责 Opus 或云端协议。
+// Read/Write 的 samples 为 int16_t 元素数；输入多通道按采样时刻交错存放。
 class AudioCodec {
 public:
     AudioCodec();

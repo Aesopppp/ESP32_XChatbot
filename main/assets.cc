@@ -87,6 +87,8 @@ bool Assets::GetAssetData(const std::string& name, void*& ptr, size_t& size) {
     return strategy_ ? strategy_->GetAssetData(this, name, ptr, size) : false;
 }
 
+// 解析资源索引中的语音模型，交给音频服务用于本地唤醒。
+// 唤醒词由实际模型决定，改界面文字不能训练出一个新唤醒词。
 bool Assets::LoadSrmodelsFromIndex(Assets* assets, cJSON* root) {
     void* ptr = nullptr;
     size_t size = 0;
@@ -432,6 +434,7 @@ bool Assets::LvglStrategy::Apply(Assets* assets, bool refresh_display_theme) {
 }
 #endif  // HAVE_LVGL
 
+// VoCat 表情模式通过 Display 挂载资源；普通 LVGL 资源采用另一套策略。
 bool Assets::EmoteStrategy::InitializePartition(Assets* assets) {
     assets->DisableTextFontGlyphPush();
     assets->partition_valid_ = false;
@@ -475,6 +478,7 @@ bool Assets::EmoteStrategy::GetAssetData(Assets* assets, const std::string& name
     return false;
 }
 
+// 先加载语音模型索引，再加载显示资源，确保音频引擎能取得当前资源包的模型。
 bool Assets::EmoteStrategy::Apply(Assets* assets, bool refresh_display_theme) {
     assets->DisableTextFontGlyphPush();
     Assets::LoadSrmodelsFromIndex(assets);
@@ -486,6 +490,8 @@ bool Assets::EmoteStrategy::Apply(Assets* assets, bool refresh_display_theme) {
     return true;
 }
 
+// 分块下载到资源分区，按分区大小约束并检查格式；更新前须解除旧 mmap 引用。
+// 这是资源更新，不是应用固件 OTA；资源分区和应用分区不可混写。
 bool Assets::Download(std::string url,
                       std::function<void(int progress, size_t speed)> progress_callback) {
     ESP_LOGI(TAG, "Downloading new version of assets from %s", url.c_str());

@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 
+# 校验可选预置网络的字节长度及密码格式；空配置保留设备正常热点配网流程。
 def generate(source, output):
     config = json.loads(source.read_text(encoding="utf-8-sig")) if source.exists() else {}
     if not isinstance(config, dict):
@@ -21,6 +22,7 @@ def generate(source, output):
         raise ValueError("Invalid Wi-Fi password length or format")
     if not ssid and password:
         raise ValueError("Wi-Fi password requires an SSID")
+    # UTF-8 SSID 按字节校验；生成头文件使用转义字面量，不泄露到公共默认配置。
     content = "#pragma once\n" + "\n".join(
         f"#define WIFI_LOCAL_{key} {json.dumps(value, ensure_ascii=True)}"
         for key, value in (("SSID", ssid), ("PASSWORD", password))

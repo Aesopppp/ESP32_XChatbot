@@ -49,6 +49,8 @@ std::string WifiBoard::GetBoardType() {
     return "wifi";
 }
 
+// 初始化配网管理器并桥接网络事件；成功联网之后的 ACOS 连接由 Application 决定。
+// AP 页面由依赖中的 WifiManager 提供，本模块负责入口、状态及屏幕提示。
 void WifiBoard::StartNetwork() {
     auto& wifi_manager = WifiManager::GetInstance();
 
@@ -97,6 +99,7 @@ void WifiBoard::StartNetwork() {
     TryWifiConnect();
 }
 
+// 有保存的 SSID 就启动 STA，首次连接 60 秒超时转配网；无 SSID 则直接进入配网。
 void WifiBoard::TryWifiConnect() {
     auto& ssid_manager = SsidManager::GetInstance();
     bool have_ssid = !ssid_manager.GetSsidList().empty();
@@ -167,6 +170,8 @@ void WifiBoard::OnWifiConnectTimeout(void* arg) {
     board->StartWifiConfigMode();
 }
 
+// 按 Kconfig 选择设备热点网页或 Blufi；热点名和页面地址由管理器生成。
+// 提示音/UI 更新通过 Schedule 交给主循环，避免网络回调直接执行应用操作。
 void WifiBoard::StartWifiConfigMode() {
     in_config_mode_ = true;
     // Transition to wifi configuring state
@@ -192,6 +197,7 @@ void WifiBoard::StartWifiConfigMode() {
 #endif
 }
 
+// 从对话中重新配网，先重置协议，再延迟停止 STA/启动 AP，避免旧连接仍上传音频。
 void WifiBoard::EnterWifiConfigMode() {
     ESP_LOGI(TAG, "EnterWifiConfigMode called");
     GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);

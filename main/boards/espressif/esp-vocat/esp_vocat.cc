@@ -452,6 +452,8 @@ private:
     SemaphoreHandle_t touch_isr_mux_;
 };
 
+// ESP-VoCat 硬件装配入口：继承通用 Wi-Fi 配网，提供音频、圆屏、触摸、电池及 IMU。
+// 应用通过 Board 接口使用这些能力，不需要知道本文件中的引脚或 I2C 地址。
 class EspVocat : public WifiBoard {
 private:
     i2c_master_bus_handle_t i2c_bus_;
@@ -532,6 +534,7 @@ private:
         PlayBatteryEmotion("low_battery", 4000);
     }
 
+    // 充电接入与低电量分档触发动画；掩码和重播计时避免每次轮询都重复提醒。
     void HandleBatteryEmotions() {
         if (charge_ == nullptr) {
             return;
@@ -591,6 +594,7 @@ private:
         }
     }
 
+    // IMU 原始加速度差值检测晃动，冷却时间防止同一次晃动连续触发表情。
     static void imu_event_task(void* arg) {
         auto* self = static_cast<EspVocat*>(arg);
         if (self == nullptr || !self->bmi270_ready_) {
@@ -629,6 +633,7 @@ private:
         }
     }
 
+    // 建立音频、触摸及电源管理共用的 I2C 总线；同时取得新驱动句柄供 codec 使用。
     void InitializeI2c() {
         i2c_config_t i2c_cfg = {
             .mode = I2C_MODE_MASTER,
@@ -674,6 +679,9 @@ private:
         UART1_RX = UART1_RX_2;
     }
 
+    // GPIO48 供电控制及 ES8311 应答区分 PCB：返回 0 为 v1.0，1 为 v1.2。
+    // 非冷启动复用缓存，避免残余电压造成误判；判定 v1.2 后重新应用全部引脚。
+    // 此流程还决定音频供电，屏幕正常并不表示麦克风/功放已正确上电。
     uint8_t DetectPcbVersion() {
         // Pre-set the output latch before switching the pin to output mode:
         // after an external reset the latch defaults to 0, and driving 0 on
@@ -979,6 +987,8 @@ private:
         ESP_ERROR_CHECK(spi_bus_initialize(QSPI_LCD_HOST, &bus_config, SPI_DMA_CH_AUTO));
     }
 
+    // QSPI 驱动 ST77916 圆屏；复位电平随 PCB 版本变化。
+    // 表情模式选择 EmoteDisplay，普通模式选择 LVGL，资源加载方式也随之不同。
     void InitializeSt77916Display(uint8_t pcb_version) {
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
@@ -1027,6 +1037,7 @@ private:
         backlight_->RestoreBrightness();
     }
 
+    // BOOT 键在启动阶段进入配网，正常运行时切换对话状态；委托给 Application。
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
@@ -1125,6 +1136,8 @@ public:
         }
     }
 
+    // 顺序依赖：I2C -> PCB/供电 -> 外设 -> SPI/屏幕 -> 交互输入。
+    // AudioCodec 首次获取时才创建，必须使用已判定的 PCB 引脚。
     EspVocat() : boot_button_(BOOT_BUTTON_GPIO) {
         const esp_timer_create_args_t emotion_timer_args = {
             .callback = &EspVocat::emotion_reset_timer_callback,
@@ -1161,6 +1174,8 @@ public:
         ESP_LOGI(TAG, "Boot speaker volume set to %d", kBootVolume);
     }
 
+    // 静态实例与设备同寿命；24 kHz 硬件音频由 AudioService 转换到网络采样率。
+    // AUDIO_INPUT_REFERENCE 开启真实扬声器回采，是讲话打断的 AEC 基础。
     virtual AudioCodec* GetAudioCodec() override {
         static BoxAudioCodec audio_codec(
             i2c_bus_, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE, AUDIO_I2S_GPIO_MCLK,
@@ -1210,4 +1225,5 @@ public:
     }
 };
 
+// 构建仅选择一个板型，导出唯一 create_board 工厂供 Board::GetInstance 调用。
 DECLARE_BOARD(EspVocat);

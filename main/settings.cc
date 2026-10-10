@@ -5,10 +5,14 @@
 
 #define TAG "Settings"
 
+// NVS 按 namespace 隔离音量、Wi-Fi、设备等设置；键名是持久化接口，改名需迁移。
+// 默认只读，写入必须显式 read_write=true；缺失值由 Get 方法返回调用方默认值。
 Settings::Settings(const std::string& ns, bool read_write) : ns_(ns), read_write_(read_write) {
     nvs_open(ns.c_str(), read_write_ ? NVS_READWRITE : NVS_READONLY, &nvs_handle_);
 }
 
+// RAII：写接口置 dirty_ 后，在对象离开作用域时提交，再关闭句柄。
+// 删除接口没有置 dirty_，不能把其提交行为等同于 Set 接口。
 Settings::~Settings() {
     if (nvs_handle_ != 0) {
         if (read_write_ && dirty_) {
@@ -23,6 +27,7 @@ std::string Settings::GetString(const std::string& key, const std::string& defau
         return default_value;
     }
 
+    // 先查询 NVS 字符串所需长度（包含末尾零），读取后剔除终止符。
     size_t length = 0;
     if (nvs_get_str(nvs_handle_, key.c_str(), nullptr, &length) != ESP_OK) {
         return default_value;

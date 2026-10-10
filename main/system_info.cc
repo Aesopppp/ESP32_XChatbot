@@ -15,6 +15,7 @@
 
 #define TAG "SystemInfo"
 
+// Flash 总容量与可用堆、最大连续空闲块是不同指标，不能用此值判断音频缓存余量。
 size_t SystemInfo::GetFlashSize() {
     uint32_t flash_size;
     if (esp_flash_get_size(NULL, &flash_size) != ESP_OK) {
@@ -24,6 +25,7 @@ size_t SystemInfo::GetFlashSize() {
     return (size_t)flash_size;
 }
 
+// 自启动以来的堆空闲最低值；诊断音频/AEC 内存时还需区分内部 RAM 和 PSRAM。
 size_t SystemInfo::GetMinimumFreeHeapSize() {
     return esp_get_minimum_free_heap_size();
 }

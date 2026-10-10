@@ -21,7 +21,8 @@
 #include "ota.h"
 #include "protocol.h"
 
-// Main event bits
+// 主任务事件位：回调通过置位通知 Run，避免在网络/音频任务直接执行应用流程。
+// 事件位会合并重复通知；实际音频和待执行函数分别保存在队列中，消费时取出。
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
 #define MAIN_EVENT_SEND_AUDIO           (1 << 1)
 #define MAIN_EVENT_WAKE_WORD_DETECTED   (1 << 2)
@@ -38,12 +39,16 @@
 #define MAIN_EVENT_PLAYBACK_DRAINED     (1 << 13)
 
 
+// AEC = 声学回声消除。设备端需要同步的播放参考，服务端模式使用音频时间戳。
 enum AecMode {
     kAecOff,
     kAecOnDeviceSide,
     kAecOnServerSide,
 };
 
+// 应用协调层：决定何时待唤醒、监听、播放、打断和退出对话。
+// 不直接访问 VoCat 引脚，而是通过 Board、AudioService、Protocol 接口工作。
+// 对外的事件入口可跨任务调用；具体状态处理集中在 Run 所在主任务。
 class Application {
 public:
     static Application& GetInstance() {
@@ -88,6 +93,7 @@ public:
     void Alert(const char* status, const char* message, const char* emotion = "", const std::string_view& sound = "");
     void DismissAlert();
 
+    // 本地停止旧回答并通知协议取消；ACOS 实时模式继续采集，不丢弃新问题句首。
     void AbortSpeaking(AbortReason reason);
 
     /**
@@ -130,12 +136,14 @@ private:
     Application();
     ~Application();
 
+    // mutex_ 只保护调度队列；执行回调时释放锁，允许回调再次 Schedule。
     std::mutex mutex_;
     std::deque<std::function<void()>> main_tasks_;
     std::unique_ptr<Protocol> protocol_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     DeviceStateMachine state_machine_;
+    // 实时模式允许播放时继续上传麦克风，自动模式则在播放时暂停上传。
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
@@ -153,8 +161,8 @@ private:
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
     // ACOS 连续对话：播放结束后才切回监听，静默计时仅统计没有用户输入的时间。
-    int64_t acos_last_input_us_ = 0;
-    bool acos_response_done_ = false;
+    int64_t acos_last_input_us_ = 0;  // 单调时钟微秒；与本地日期/时区无关。
+    bool acos_response_done_ = false;  // 网络结束标志，不等于扬声器已播放完。
     TaskHandle_t activation_task_handle_ = nullptr;
 
 
@@ -192,6 +200,7 @@ private:
 };
 
 
+// RAII 临时优先级保护：进入作用域时修改当前任务优先级，退出时自动恢复。
 class TaskPriorityReset {
 public:
     TaskPriorityReset(BaseType_t priority) {

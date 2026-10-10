@@ -1,3 +1,6 @@
+// 运行总流程：上电初始化 -> Wi-Fi 就绪 -> 初始化协议 -> Idle 本地待唤醒。
+// ACOS 唤醒后使用 Realtime 模式：监听与播放并行，由服务端 speech_started 确认打断。
+// response.done 只结束网络接收；等音频队列与正在播放的工作排空后才回到 Listening。
 #include "application.h"
 #include "assets.h"
 #include "assets/lang_config.h"
@@ -24,6 +27,7 @@
 
 #define TAG "Application"
 
+// 创建事件组和一秒定时器。定时器仅发送事件，UI 和静默检查交给主循环。
 Application::Application() : notify_player_(audio_service_) {
     event_group_ = xEventGroupCreate();
 
@@ -63,6 +67,7 @@ Application::~Application() {
 
 bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
 
+// 初始化设备能力并注册回调，最后启动异步联网；音频引擎的模型按需初始化。
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
@@ -84,6 +89,7 @@ void Application::Initialize() {
     ESP_LOGI(TAG, "After board/audio init");
     SystemInfo::PrintHeapStats();
 
+    // 这些回调来自音频任务，不在此等待网络或执行复杂的应用状态切换。
     AudioServiceCallbacks callbacks;
     callbacks.on_send_queue_available = [this]() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
@@ -182,6 +188,8 @@ void Application::Initialize() {
     display->UpdateStatusBar(true);
 }
 
+// 所有高层事件的消费端。ACOS 每 10ms 醒来一次进行 Poll，未必需要事件位触发。
+// 一次唤醒可处理多个事件；状态初始化必须先于下一批下行音频，避免首包被清掉。
 void Application::Run() {
     // Set the priority of the main task to 10
     vTaskPrioritySet(nullptr, 10);
@@ -251,6 +259,8 @@ void Application::Run() {
             HandleStopListeningEvent();
         }
 
+        // 上传入口：AudioService 已完成 PCM -> Opus，协议层负责封装和实际传输。
+        // 发送失败必须排空剩余包，否则编码任务等队列空间时可能堵住整个采集链路。
         if (bits & MAIN_EVENT_SEND_AUDIO) {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
                 if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
@@ -309,6 +319,7 @@ void Application::Run() {
                     break;
                 protocol_->Poll();
             }
+            // 网络停止和实际播放停止是两个条件，二者同时满足才恢复等待用户输入。
             if (acos_response_done_ && audio_service_.IsPlaybackIdle()) {
                 acos_response_done_ = false;
                 if (GetDeviceState() == kDeviceStateSpeaking)
@@ -317,6 +328,8 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateListening && audio_service_.IsVoiceDetected()) {
                 acos_last_input_us_ = now;
             }
+            // 仅在 Listening 且播放已结束时退出会话；长回答本身不会触发静默休眠。
+            // CloseAudioChannel 在 ACOS 中关闭上传门，不关闭底层 WebSocket。
             if (protocol_->IsAudioChannelOpened() && GetDeviceState() == kDeviceStateListening &&
                 audio_service_.IsPlaybackIdle() && acos_last_input_us_ > 0 &&
                 now - acos_last_input_us_ >= int64_t(CONFIG_ACOS_IDLE_SECONDS) * 1000000) {
@@ -328,6 +341,7 @@ void Application::Run() {
     }
 }
 
+// Wi-Fi 就绪后启动后台准备任务；首次启动/配网完成才进入 Activating。
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
@@ -355,6 +369,7 @@ void Application::HandleNetworkConnectedEvent() {
     display->UpdateStatusBar(true);
 }
 
+// 这里处理板级网络断开；ACOS WebSocket 单独断开由协议自己的重连流程处理。
 void Application::HandleNetworkDisconnectedEvent() {
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
@@ -372,6 +387,7 @@ void Application::HandleNetworkDisconnectedEvent() {
     display->UpdateStatusBar(true);
 }
 
+// 准备完毕后进入 Idle，恢复本地唤醒。若协议配置报错，保留错误提示。
 void Application::HandleActivationDoneEvent() {
     ESP_LOGI(TAG, "Activation done");
 
@@ -404,6 +420,7 @@ void Application::HandleActivationDoneEvent() {
     }
 }
 
+// 后台加载资源、准备服务和协议。ACOS 不走小智绑定码及小智云固件升级流程。
 void Application::ActivationTask() {
     // Create OTA object for activation process
     ota_ = std::make_unique<Ota>();
@@ -426,6 +443,7 @@ void Application::ActivationTask() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
 }
 
+// 一次性检查/装载资源分区：字体、表情和唤醒模型均可能来自外部资源包。
 void Application::CheckAssetsVersion() {
     // Only allow CheckAssetsVersion to be called once
     if (assets_version_checked_) {
@@ -486,6 +504,7 @@ void Application::CheckAssetsVersion() {
     display->SetEmotion("robot_2");
 }
 
+// 上游小智服务的版本检查、绑定及 OTA 流程；ACOS 分支不会在启动时调用它。
 void Application::CheckNewVersion() {
     const int MAX_RETRY = 10;
     int retry_count = 0;
@@ -575,6 +594,8 @@ void Application::CheckNewVersion() {
     }
 }
 
+// 按编译选项选 ACOS，或按 OTA 配置选择小智 MQTT/WebSocket。
+// Protocol 回调提供统一的音频/JSON 接口，应用层无需了解各服务线上的封装格式。
 void Application::InitializeProtocol() {
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
@@ -648,6 +669,8 @@ void Application::InitializeProtocol() {
             acos_response_done_ = true;  // 等待实际播放完毕，不能按网络结束提前休眠。
             return;
         } else if (strcmp(type->valuestring, "acos.speech_started") == 0) {
+            // 云端确认用户开始说话：只清理旧下行音频，采集/上传维持运行。
+            // 本地 VAD 仅用于输入活动统计，不作为 ACOS 播放中的自动打断判据。
             acos_last_input_us_ = esp_timer_get_time();
             acos_response_done_ = false;
             audio_service_.ResetDecoder();
@@ -673,6 +696,8 @@ void Application::InitializeProtocol() {
             return;
         }
 #endif
+        // 上游 notify 通过 URL 下载 Ogg/Opus 主动播报；它不是普通 ACOS 二进制回答。
+        // 解析后复制字符串再 Schedule，不能把回调结束后失效的 cJSON 指针传出去。
         if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
@@ -867,6 +892,8 @@ void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT
 
 void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
 
+// 单击按键的统一语义：Idle 开启对话、Speaking 打断、Listening 结束会话。
+// 配网阶段同一按键入口用于切换本地录音回放测试。
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
 
@@ -909,6 +936,7 @@ void Application::HandleToggleChatEvent() {
     }
 }
 
+// 延迟到下一次主循环继续打开音频通道，使 Connecting 状态先更新到界面。
 void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     // Check state again in case it was changed during scheduling
     if (GetDeviceState() != kDeviceStateConnecting) {
@@ -931,6 +959,7 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     SetListeningMode(mode);
 }
 
+// 手动开始监听入口，主要供按住说话等交互使用；不等同于 ACOS 默认实时模式。
 void Application::HandleStartListeningEvent() {
     auto state = GetDeviceState();
 
@@ -967,6 +996,7 @@ void Application::HandleStartListeningEvent() {
     }
 }
 
+// 手动停止监听入口；通知播放和音频自测分别执行其对应的停止流程。
 void Application::HandleStopListeningEvent() {
     auto state = GetDeviceState();
 
@@ -984,6 +1014,8 @@ void Application::HandleStopListeningEvent() {
     }
 }
 
+// 唤醒识别结果已由 AFE 产生。Idle 首次开启会话，播放中则用于显式唤醒词打断。
+// 识别器命中后会暂停检测，处理完成必须恢复相应检测开关。
 void Application::HandleWakeWordDetectedEvent() {
     if (!protocol_) {
         return;
@@ -1027,6 +1059,8 @@ void Application::HandleWakeWordDetectedEvent() {
     }
 }
 
+// 首次唤醒分两步执行：先进入 Connecting，再打开会话门并开始监听。
+// ACOS 只使用本地唤醒结果，不把唤醒词缓存当作用户问题上传。
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
 #if !CONFIG_USE_ACOS
     // Must run in the main task with the device in idle state
@@ -1053,6 +1087,7 @@ void Application::BeginWakeWordInvoke(const std::string& wake_word) {
     ContinueWakeWordInvoke(wake_word);
 }
 
+// 调度期间状态可能已改变，因此继续前再次检查，避免过期的唤醒动作启动采集。
 void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     // Check state again in case it was changed during scheduling
     if (GetDeviceState() != kDeviceStateConnecting) {
@@ -1094,6 +1129,8 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 #endif
 }
 
+// 状态的硬件副作用统一在这里执行：屏幕/LED、麦克风处理和唤醒开关。
+// Speaking + Realtime 仍保留麦克风处理，这是无唤醒词打断能工作的前提。
 void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
@@ -1170,6 +1207,7 @@ void Application::HandleStateChangedEvent() {
     }
 }
 
+// 开启处理和上传之前先通知协议；必要的提示音放在解码器复位之后再入队。
 void Application::StartListeningAudio() {
     // Runs in the main loop, either directly from HandleStateChangedEvent or
     // deferred via MAIN_EVENT_PLAYBACK_DRAINED once the playback queue drains.
@@ -1190,6 +1228,7 @@ void Application::StartListeningAudio() {
     }
 }
 
+// AFE 可与语音处理共用采集链路；非 AFE 检测器不能在这里直接并行开启。
 void Application::ConfigureWakeWordForListening() {
 #if defined(CONFIG_WAKE_WORD_DETECTION_IN_LISTENING) || CONFIG_USE_ACOS
     // Enable wake word detection in listening mode (configured via Kconfig)
@@ -1200,6 +1239,7 @@ void Application::ConfigureWakeWordForListening() {
 #endif
 }
 
+// 主动通知只接受空闲状态，避免覆盖当前对话；每次播放分配 ID 过滤迟到回调。
 void Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy()) {
         ESP_LOGW(TAG, "Ignoring notify message while device is busy");
@@ -1246,6 +1286,7 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
     }
 }
 
+// 停下载任务、清下行缓存、恢复待机；不删除服务器上的通知文件。
 void Application::StopNotification() {
     notify_player_.Stop();
     audio_service_.ResetDecoder();
@@ -1257,6 +1298,7 @@ void Application::StopNotification() {
     }
 }
 
+// 旧通知的完成事件可能在停止后才到达，ID 和状态都匹配才允许结束当前播放。
 void Application::HandleNotificationFinished(uint32_t playback_id, bool success) {
     if (GetDeviceState() != kDeviceStateNotifying || notification_playback_id_ != playback_id) {
         return;
@@ -1266,6 +1308,7 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
     StopNotification();
 }
 
+// 跨任务安全投递：只在锁内入队，主循环取出后在锁外执行。
 void Application::Schedule(std::function<void()>&& callback) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1274,6 +1317,7 @@ void Application::Schedule(std::function<void()>&& callback) {
     xEventGroupSetBits(event_group_, MAIN_EVENT_SCHEDULE);
 }
 
+// 打断分为本地清播放缓存与服务端取消两部分；不能只静音而继续积累旧回答。
 void Application::AbortSpeaking(AbortReason reason) {
     ESP_LOGI(TAG, "Abort speaking");
     aborted_ = true;
@@ -1291,6 +1335,7 @@ void Application::AbortSpeaking(AbortReason reason) {
 #endif
 }
 
+// 每次进入监听重置 ACOS 静默起点，随后由 VAD/服务端语音事件刷新活动时间。
 void Application::SetListeningMode(ListeningMode mode) {
 #if CONFIG_USE_ACOS
     acos_last_input_us_ = esp_timer_get_time();
@@ -1473,6 +1518,7 @@ void Application::SetAecMode(AecMode mode) {
 
 void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
 
+// 释放连接和 OTA 对象须与主任务协调；旧回调不可继续引用已销毁的协议对象。
 void Application::ResetProtocol() {
     Schedule([this]() {
         if (GetDeviceState() == kDeviceStateNotifying) {

@@ -9,6 +9,10 @@ GitHub 仓库名为 `ESP32_XChatbot`，本机目录和板型仍为 ESP-VoCat v1.
 以及无输入一分钟回到待唤醒。配置、音频协议和限制见 `ACOS_GUIDE_CN.md`。
 以下带日期的记录描述当时的准备和诊断状态；当前版本已经过用户真机测试。
 
+中文源码阅读指南见 [docs/SOURCE_GUIDE_CN.md](docs/SOURCE_GUIDE_CN.md)。
+指南按当前 VoCat/ACOS 的执行流程说明模块、线程、缓存和常用修改入口，
+可与源码中的中文注释一起阅读。
+
 ## 开发环境
 
 - ESP-IDF 6.1：`D:\Develop_C\Espnew\v6.1\esp-idf`

@@ -8,6 +8,8 @@
 
 #include <esp_system.h>
 
+// 固定槽位环形队列，不为队列节点逐次分配内存，但元素内部的 vector 仍可能分配。
+// 本容器不带锁：并发读写必须由调用方保护；空队列不能 front/pop，满队列 push 失败。
 template <typename T, size_t Capacity>
 class FixedQueue {
     static_assert(Capacity > 0);

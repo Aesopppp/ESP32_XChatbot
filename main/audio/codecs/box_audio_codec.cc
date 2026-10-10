@@ -6,6 +6,8 @@
 
 #define TAG "BoxAudioCodec"
 
+// VoCat 使用 ES8311 输出、ES7210 输入；I2C 管控制、I2S 管音频、GPIO 控制 PA。
+// input_reference=true 时提供麦克风+扬声器回采两个逻辑输入通道供 AEC 使用。
 BoxAudioCodec::BoxAudioCodec(void* i2c_master_handle, int input_sample_rate, int output_sample_rate,
                              gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout,
                              gpio_num_t din, gpio_num_t pa_pin, uint8_t es8311_addr,
@@ -95,6 +97,8 @@ BoxAudioCodec::~BoxAudioCodec() {
     audio_codec_delete_data_if(data_if_);
 }
 
+// 全双工 RX/TX 共享时钟；输出为 16 位标准立体声，输入按四槽 TDM 接收。
+// 必须使用板型配置的引脚和采样率，不能直接照搬另一开发板的 I2S 配置。
 void BoxAudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
     assert(input_sample_rate_ == output_sample_rate_);
 
@@ -185,11 +189,14 @@ void BoxAudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_
     ESP_LOGI(TAG, "Duplex channels created");
 }
 
+// 先设置实际 DAC 音量，再调用基类保存 NVS；VoCat 启动时会恢复指定开机音量。
 void BoxAudioCodec::SetOutputVolume(int volume) {
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(output_dev_, volume));
     AudioCodec::SetOutputVolume(volume);
 }
 
+// 通道掩码选择逻辑麦克风及回采；ES7210 物理 MIC 编号与 TDM 槽序不同。
+// 麦克风增益和回采增益应分别配置，回采过弱或失真都会影响回声消除。
 void BoxAudioCodec::EnableInput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (enable == input_enabled_) {

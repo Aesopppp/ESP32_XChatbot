@@ -46,6 +46,9 @@ using NetworkEventCallback = std::function<void(NetworkEvent event, const std::s
 void* create_board();
 class AudioCodec;
 class Display;
+// 全局板级接口：上层只依赖此抽象，构建系统选择一个具体实现。
+// 背光、摄像头、电池等能力可不存在，使用前须检查指针或返回值。
+// GetInstance 延迟创建且与设备同寿命；不应手动 delete 返回的设备对象。
 class Board {
 private:
     Board(const Board&) = delete; // 禁用拷贝构造函数

@@ -13,6 +13,8 @@ from build_default_assets import (
 )
 
 
+# 从 sdkconfig 读取真正启用的 WakeNet 模型并放入 staging，避免表情包带错唤醒词。
+# 只生成构建暂存文件，原始依赖资源及模型不在这里修改。
 def prepare(sdkconfig, model_path, config_path, staging):
     staging = Path(staging)
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
@@ -20,6 +22,7 @@ def prepare(sdkconfig, model_path, config_path, staging):
     if wake_type["use_custom_wake_word"]:
         raise ValueError("VoCat expression assets require a WakeNet model, not MultiNet")
 
+    # 默认取消供应商自带模型，启用唤醒时再写入本工程选择的模型包。
     config["wakenet_model"] = "none"
     if wake_type["use_afe_wake_word"] or wake_type["use_esp_wake_word"]:
         names = read_wakenet_from_sdkconfig(str(sdkconfig))

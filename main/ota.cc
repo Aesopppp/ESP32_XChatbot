@@ -76,6 +76,8 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 /* 
  * Specification: https://ccnphfhqs21z.feishu.cn/wiki/FjW6wZmisimNBBkov6OcmfvknVd
  */
+// 小智启动配置/激活/固件发现入口：HTTP 响应可携带 MQTT 或 WebSocket 配置。
+// 当前 ACOS 模式由 Application 绕过该发现流程，直接使用 ACOS 本地配置。
 NetworkResult<> Ota::CheckVersion() {
     auto& board = Board::GetInstance();
     auto app_desc = esp_app_get_description();
@@ -293,6 +295,7 @@ NetworkResult<> Ota::CheckVersion() {
     return {};
 }
 
+// OTA 首次启动验证完成后确认当前镜像，取消 ESP-IDF 回滚；factory 分区无需确认。
 void Ota::MarkCurrentVersionValid() {
     auto partition = esp_ota_get_running_partition();
     if (strcmp(partition->label, "factory") == 0) {
@@ -313,6 +316,8 @@ void Ota::MarkCurrentVersionValid() {
     }
 }
 
+// HTTP 分块写入下一个 OTA 应用分区，检查镜像信息并在成功后选择新启动分区。
+// 不覆盖当前正在运行的应用；回调报告下载进度，不代表资源分区同时已更新。
 bool Ota::Upgrade(const std::string& firmware_url, std::function<void(int progress, size_t speed)> callback) {
     ESP_LOGI(TAG, "Upgrading firmware from %s", firmware_url.c_str());
     esp_ota_handle_t update_handle = 0;

@@ -1,3 +1,5 @@
+// 状态机只校验合法路径并发布变化；屏幕、音频等副作用由 Application 处理。
+// 状态值使用原子变量供其他任务读取，监听器列表单独加锁。
 #include "device_state_machine.h"
 
 #include <algorithm>
@@ -32,6 +34,7 @@ const char* DeviceStateMachine::GetStateName(DeviceState state) {
     return STATE_STRINGS[kDeviceStateFatalError + 1];
 }
 
+// 下方 switch 是允许迁移的完整列表。重复进入同一状态是成功的空操作。
 bool DeviceStateMachine::IsValidTransition(DeviceState from, DeviceState to) const {
     // Allow transition to the same state (no-op)
     if (from == to) {
@@ -150,6 +153,8 @@ void DeviceStateMachine::RemoveStateChangeListener(int listener_id) {
         listeners_.end());
 }
 
+// 先复制监听器再释放锁，回调可安全增删监听器而不会递归锁住列表。
+// 回调在调用 TransitionTo 的任务中同步执行，不会自动切换到应用主任务。
 void DeviceStateMachine::NotifyStateChange(DeviceState old_state, DeviceState new_state) {
     std::vector<StateCallback> callbacks_copy;
     {

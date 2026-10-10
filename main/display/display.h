@@ -35,6 +35,8 @@ private:
     std::string name_;
 };
 
+// 统一屏幕接口：具体板型可选择 LVGL、Emote 或 NoDisplay。
+// 情绪、状态图标和字幕是独立更新通路，不应把显示 Speaking 当作播放完成依据。
 class Display {
 public:
     Display();
@@ -101,6 +103,7 @@ protected:
     virtual void Unlock() = 0;
 };
 
+// 作用域锁：LVGL 实现需要保护 GUI 访问；取得失败时调用方应检查 bool 再操作。
 class DisplayLockGuard {
 public:
     explicit DisplayLockGuard(Display* display)

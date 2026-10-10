@@ -14,6 +14,8 @@ WakeWordAudioCache::~WakeWordAudioCache() {
     }
 }
 
+// 在 PSRAM 一次性分配单声道 PCM 环形缓存，容量单位为采样点而非字节。
+// 16 kHz 下 32000 点约两秒；此缓存用于可选唤醒音频，不是整段对话录音存档。
 bool WakeWordAudioCache::Initialize(size_t sample_count) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (buffer_ != nullptr) {
@@ -37,6 +39,7 @@ bool WakeWordAudioCache::Initialize(size_t sample_count) {
     return true;
 }
 
+// 始终保留最近 capacity_ 个点，满后覆盖最旧数据；锁保护读写位置与采样数据。
 void WakeWordAudioCache::Store(const int16_t* data, size_t samples) {
     if (data == nullptr || samples == 0) {
         return;
@@ -65,6 +68,7 @@ void WakeWordAudioCache::Store(const int16_t* data, size_t samples) {
     size_ = std::min(capacity_, size_ + samples);
 }
 
+// offset 相对于当前缓存最旧的采样点，按时间顺序读取并处理环形回绕。
 size_t WakeWordAudioCache::Read(size_t offset, int16_t* output, size_t samples) const {
     if (output == nullptr || samples == 0) {
         return 0;

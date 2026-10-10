@@ -1,5 +1,6 @@
 menu "Xiaozhi Assistant"
 
+# ACOS 模式保留本地唤醒、屏幕和配网，云端交互使用独立 ACOS 协议适配器。
 config USE_ACOS
     bool "Use ACOS WebSocket instead of XiaoZhi cloud"
     default y if BOARD_TYPE_ESP_VOCAT
@@ -9,6 +10,8 @@ config USE_ACOS
         from .local/acos.json at build time (or the acos NVS namespace).
         XiaoZhi activation, OTA discovery and MCP are not used in this mode.
 
+# 开启后播放期间持续上传 AEC 后的麦克风；云端 speech_started 确认后才取消回答。
+# 本地 VAD 不直接打断，避免残余回声导致设备自己打断自己。
 config ACOS_BARGE_IN
     bool "ACOS continuous microphone and speech interruption"
     depends on USE_ACOS && USE_AUDIO_PROCESSOR
@@ -19,6 +22,7 @@ config ACOS_BARGE_IN
         Local VAD alone does not stop playback, to avoid residual echo triggering
         an interruption. Wake word and touch interruption remain available.
 
+# 连续对话无输入超时，单位秒；到期回到本地待唤醒，不等同于关闭 Wi-Fi。
 config ACOS_IDLE_SECONDS
     int "ACOS conversation silence timeout (seconds)"
     depends on USE_ACOS

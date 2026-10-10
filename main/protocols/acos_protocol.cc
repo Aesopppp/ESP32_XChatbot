@@ -1,3 +1,6 @@
+// 上行：16kHz 单声道 20ms Opus -> Base64 -> input_audio_buffer.append JSON。
+// 下行：当前服务约定二进制 Opus 为 16kHz/60ms，JSON 携带语音活动/结束/字幕事件。
+// Receive 快速接收并入队，Poll 在主任务按顺序释放音频，Worker 独占发送与重连。
 #include "acos_protocol.h"
 
 #if CONFIG_USE_ACOS
@@ -24,6 +27,7 @@ constexpr size_t kMaxMessage = 16384;
 constexpr size_t kMaxReceiveBytes = 512 * 1024;
 constexpr size_t kMaxReceiveFrames = 2048;
 constexpr size_t kMaxUploadFrames = 50;  // 最多一秒 20ms 音频，超时不补发旧语音。
+// 接管 root 所有权：序列化后同时释放字符串和 JSON 树，调用方不可再次删除。
 std::string JsonString(cJSON* root) {
     char* data = cJSON_PrintUnformatted(root);
     std::string result = data ? data : "";
@@ -47,6 +51,8 @@ AcosProtocol::~AcosProtocol() {
         worker_.join();
 }
 
+// NVS 中的服务器配置优先于本机生成的默认值；不将 token 写入日志。
+// 返回成功只表示后台线程已启动，真正鉴权完成由 __proxy_connected__ 确认。
 bool AcosProtocol::Start() {
     Settings settings("acos", false);
     url_ = settings.GetString("url", ACOS_LOCAL_URL);
@@ -69,6 +75,7 @@ bool AcosProtocol::Start() {
     return true;
 }
 
+// 开的是应用层上传门，不是新建 WebSocket；epoch 递增使上一段录音失效。
 bool AcosProtocol::OpenAudioChannel() {
     // 建连和鉴权在后台进行，主任务不等待 TLS。连接恢复前丢弃过期语音。
     awake_ = true;
@@ -81,6 +88,8 @@ bool AcosProtocol::OpenAudioChannel() {
 
 bool AcosProtocol::IsAudioChannelOpened() const { return awake_.load(); }
 
+// 调用方必须持有 queue_mutex_。先建立旧音频屏障，再清缓存并排入取消命令。
+// 清理接收队列并不能阻止服务器继续发送，屏障负责丢弃仍在路上的尾包。
 void AcosProtocol::InterruptLocked() {
     if (flow_.Interrupt()) {
         // 一轮最多一次取消；发送前再核对编号，防止延迟取消误伤下一轮回答。
@@ -96,6 +105,7 @@ void AcosProtocol::InterruptLocked() {
     playback_finished_ = false;
 }
 
+// 超时/手动退出时关闭会话上传并清队列，保留网络连接供下一次唤醒使用。
 void AcosProtocol::CloseAudioChannel(bool send_goodbye) {
     (void)send_goodbye;
     awake_ = false;
@@ -113,6 +123,8 @@ void AcosProtocol::CloseAudioChannel(bool send_goodbye) {
     ESP_LOGI(TAG, "Conversation asleep; websocket retained, microphone upload off");
 }
 
+// 非阻塞排队 JSON 消息；音频上传也走此入口，容量满时丢最旧消息。
+// 上限按 50 个 20ms 音频帧设计；其他文本消息本身不能换算成音频时长。
 bool AcosProtocol::SendText(const std::string& text) {
     if (text.empty() || text.size() > kMaxMessage)
         return false;
@@ -125,6 +137,8 @@ bool AcosProtocol::SendText(const std::string& text) {
     return true;
 }
 
+// 这里只做封装，不调用 WebSocket::Send，避免网络写等待占住主任务。
+// 离线时返回 true 表示该包已消费/丢弃，并不代表服务器收到音频。
 bool AcosProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     if (!awake_ || !ready_)
         return true;  // 不让断线阻塞编码队列。
@@ -165,6 +179,7 @@ void AcosProtocol::SendAbortSpeaking(AbortReason reason) {
     playback_turn_ = 0;
 }
 
+// 合成应用事件；root 仅在回调期间有效，异步使用字段必须先复制内容。
 void AcosProtocol::Emit(const char* type, const char* state, const char* text) {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", type);
@@ -177,6 +192,8 @@ void AcosProtocol::Emit(const char* type, const char* state, const char* text) {
     cJSON_Delete(root);
 }
 
+// 网络接收入口：先识别鉴权和打断控制，再为一般帧分配 PSRAM 并入队。
+// 这里不调用应用状态机、不解码、不等待扬声器；容量/分配异常则请求重连。
 void AcosProtocol::Receive(const char* data, size_t size, bool binary) {
     last_receive_us_ = esp_timer_get_time();
     if (!data || size == 0 || size > kMaxMessage) {
@@ -215,6 +232,7 @@ void AcosProtocol::Receive(const char* data, size_t size, bool binary) {
         ESP_LOGW(TAG, "Server returned an error (payload omitted)");
         return;
     }
+    // 待唤醒仍处理鉴权、错误和结束确认，但不接受新回答或上传用户声音。
     if (!awake_) {
         if (!binary && IsDone(type))
             flow_.Done();
@@ -271,6 +289,8 @@ void AcosProtocol::Receive(const char* data, size_t size, bool binary) {
     incoming_.push_back(std::move(frame));
 }
 
+// 应用主任务调用。连接/打断/新回答起始事件先处理，再逐帧投递给解码服务。
+// 接收顺序保留在 incoming_ 中；不能把 done 提前处理，否则会截断未播放尾音。
 void AcosProtocol::Poll() {
     // 只由主任务调用。每轮最多一帧，状态变更先于下一帧音频处理。
     Frame frame;
@@ -334,6 +354,8 @@ void AcosProtocol::Poll() {
                             ESP_LOGW(TAG, "Playback underrun: turn=%lu, rebuffering 300ms",
                                      (unsigned long)playback_turn_);
                         }
+                        // 首次播放与欠载后先累积约 300ms，减少网络抖动造成的断续。
+                        // 完成事件已到则允许短句直接播；策略另有 600ms 等待上限。
                         if (playback_buffer_.buffering) {
                             unsigned queued_ms = 0;
                             unsigned inspected = 0;
@@ -413,6 +435,9 @@ void AcosProtocol::Poll() {
     }
 }
 
+// 唯一网络发送者：连接 -> auth -> 上传/取消/心跳 -> 清理 -> 5 秒后重试。
+// 鉴权最多等 15 秒，无接收活动最多等 60 秒，每 20 秒发送 Ping。
+// cancel 优先于普通音频；取消确认超时 10 秒通过重连恢复边界状态。
 void AcosProtocol::Worker() {
     while (!stopping_) {
         reconnect_ = false;
@@ -476,6 +501,7 @@ void AcosProtocol::Worker() {
                     ESP_LOGI(TAG, "Response cancel sent; microphone stream retained");
                 } else if (!upload.json.empty() && awake_ && ready_ && upload.epoch == epoch_ &&
                            now - upload.created_us < 1000000) {
+                    // 必须属于当前会话且年龄小于一秒，断网期间的声音不会恢复后补发。
                     if (!websocket->Send(upload.json))
                         break;
                 } else {

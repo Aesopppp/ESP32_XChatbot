@@ -5,10 +5,14 @@
 #include <driver/uart.h>
 #include <driver/spi_master.h>
 
+// 此处定义硬件采样率；云端 Opus 的 16 kHz 在 AudioService 中重采样。
+// REFERENCE 表示 ADC 包含扬声器回采通道，不是启用第二个用户麦克风。
+
 #define AUDIO_INPUT_SAMPLE_RATE  24000   
 #define AUDIO_OUTPUT_SAMPLE_RATE 24000
 #define AUDIO_INPUT_REFERENCE    true
 
+// v1.2 音频电源控制；PCB 探测必须保持正确电平，否则音频和共用 I2C 外设异常。
 #define CORDEC_POWER_CTRL  GPIO_NUM_48
 
 #define POWER_CTRL  GPIO_NUM_9
@@ -17,6 +21,7 @@
 #define SD_SCK      GPIO_NUM_16
 #define SD_MOSI     GPIO_NUM_38
 
+// _1/_2 分别对应 PCB v1.0/v1.2，运行时 DetectPcbVersion 选择实际引脚。
 #define AUDIO_I2S_GPIO_MCLK     GPIO_NUM_42
 #define AUDIO_I2S_GPIO_WS       GPIO_NUM_39
 #define AUDIO_I2S_GPIO_BCLK     GPIO_NUM_40

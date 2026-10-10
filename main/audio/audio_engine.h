@@ -11,11 +11,14 @@
 
 #include "audio_codec.h"
 
+// 音频处理引擎接口：接收交错 PCM，输出可编码的单声道帧、VAD 和唤醒事件。
+// AFE 与轻量引擎实现同一接口；板级通道数/回采能力由 AudioCodec 提供。
 class AudioEngine {
 public:
     virtual ~AudioEngine() = default;
 
     virtual bool Initialize(AudioCodec* codec, int frame_duration_ms, srmodel_list_t* models_list) = 0;
+    // 输入数据通过移动转移所有权；回调所在线程取决于具体引擎实现。
     virtual void Feed(std::vector<int16_t>&& data) = 0;
 
     virtual void EnableWakeWordDetection(bool enable) = 0;

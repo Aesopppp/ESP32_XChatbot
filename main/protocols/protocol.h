@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+// 传输与音频服务之间的单包契约：payload 是 Opus 压缩数据，不是 PCM/WAV。
+// sample_rate 单位 Hz，frame_duration/media_position 单位 ms；playback_id 关联通知字幕。
 struct AudioStreamPacket {
     int sample_rate = 0;
     int frame_duration = 0;
@@ -41,6 +43,9 @@ enum ListeningMode {
     kListeningModeRealtime  // 需要 AEC 支持
 };
 
+// 协议抽象：ACOS、标准 WebSocket、MQTT/UDP 复用同一应用层回调。
+// 物理连接与逻辑音频通道不同，CloseAudioChannel 不一定断开网络。
+// JSON 回调中的 cJSON 指针是借用值；跨任务使用须复制字段或复制 JSON。
 class Protocol {
 public:
     virtual ~Protocol() = default;
