@@ -4,6 +4,7 @@
 #include <cJSON.h>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,8 @@ public:
     void OnDisconnected(std::function<void()> callback);
 
     virtual bool Start() = 0;
+    // 默认传输由回调驱动；有界队列适配器可在主任务中分批处理输入。
+    virtual void Poll() {}
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;

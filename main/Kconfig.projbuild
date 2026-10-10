@@ -1,5 +1,30 @@
 menu "Xiaozhi Assistant"
 
+config USE_ACOS
+    bool "Use ACOS WebSocket instead of XiaoZhi cloud"
+    default y if BOARD_TYPE_ESP_VOCAT
+    depends on BOARD_TYPE_ESP_VOCAT && SPIRAM
+    help
+        Retains local wake word, display and provisioning. Credentials are read
+        from .local/acos.json at build time (or the acos NVS namespace).
+        XiaoZhi activation, OTA discovery and MCP are not used in this mode.
+
+config ACOS_BARGE_IN
+    bool "ACOS continuous microphone and speech interruption"
+    depends on USE_ACOS && USE_AUDIO_PROCESSOR
+    default y
+    help
+        Enable local AEC and upload microphone audio while playing replies.
+        ACOS speech_started cancels the old response without cutting the uplink.
+        Local VAD alone does not stop playback, to avoid residual echo triggering
+        an interruption. Wake word and touch interruption remain available.
+
+config ACOS_IDLE_SECONDS
+    int "ACOS conversation silence timeout (seconds)"
+    depends on USE_ACOS
+    range 10 600
+    default 60
+
 config OTA_URL
     string "Default OTA URL"
     default "https://api.tenclass.net/xiaozhi/ota/"

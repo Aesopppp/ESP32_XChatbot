@@ -93,7 +93,20 @@ NetworkResult<> Ota::CheckVersion() {
     auto http = SetupHttp();
 
     std::string data = board.GetSystemInfoJson();
+    if (!data.empty()) {
+        // Validate the complete payload before sending it; unescaped board strings
+        // must not silently turn into a cloud-side HTTP 400.
+        cJSON* request = cJSON_ParseWithLengthOpts(data.c_str(), data.size() + 1, nullptr, true);
+        const bool valid_request = cJSON_IsObject(request);
+        cJSON_Delete(request);
+        if (!valid_request) {
+            ESP_LOGE(TAG, "Startup configuration request contains invalid device JSON");
+            return std::unexpected(NetworkError::ProtocolError());
+        }
+    }
     std::string method = data.length() > 0 ? "POST" : "GET";
+    ESP_LOGI(TAG, "Checking startup configuration: method=%s, payload=%u bytes, activation=v%d",
+             method.c_str(), static_cast<unsigned>(data.size()), has_serial_number_ ? 2 : 1);
     http->SetContent(std::move(data));
 
     if (auto opened = http->Open(method, url); !opened) {
@@ -108,6 +121,37 @@ NetworkResult<> Ota::CheckVersion() {
     }
     if (*status_code != 200) {
         ESP_LOGE(TAG, "Failed to check version, status code: %d", *status_code);
+        // Read only a bounded error response. ReadAll() would allow an arbitrary
+        // server error page to consume RAM; successful credentials are never logged.
+        char error_body[513] = {};
+        size_t received = 0;
+        while (received < sizeof(error_body) - 1) {
+            auto read = http->Read(error_body + received, sizeof(error_body) - 1 - received);
+            if (!read || *read <= 0) {
+                break;
+            }
+            received += static_cast<size_t>(*read);
+        }
+        http->Close();
+        cJSON* error_json = cJSON_Parse(error_body);
+        const cJSON* message = cJSON_GetObjectItemCaseSensitive(error_json, "message");
+        if (!cJSON_IsString(message)) {
+            message = cJSON_GetObjectItemCaseSensitive(error_json, "error");
+        }
+        std::string detail = cJSON_IsString(message) ? message->valuestring : error_body;
+        cJSON_Delete(error_json);
+        for (char& ch : detail) {
+            if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f) {
+                ch = ' ';
+            }
+        }
+        if (!detail.empty()) {
+            ESP_LOGE(TAG, "Startup configuration rejected: HTTP %d, server detail: %.512s",
+                     *status_code, detail.c_str());
+        } else {
+            ESP_LOGE(TAG, "Startup configuration rejected: HTTP %d, no response body",
+                     *status_code);
+        }
         return std::unexpected(NetworkError::HttpFailed(*status_code));
     }
 
@@ -117,8 +161,8 @@ NetworkResult<> Ota::CheckVersion() {
     // Response: { "firmware": { "version": "1.0.0", "url": "http://" } }
     // Parse the JSON response and check if the version is newer
     // If it is, set has_new_version_ to true and store the new version and URL
-    
-    cJSON *root = cJSON_Parse(data.c_str());
+
+    cJSON* root = cJSON_Parse(data.c_str());
     if (root == NULL) {
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return std::unexpected(NetworkError::ProtocolError());

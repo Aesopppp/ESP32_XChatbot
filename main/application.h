@@ -14,12 +14,12 @@
 #include <cstdint>
 #include <vector>
 
-#include "protocol.h"
-#include "ota.h"
 #include "audio_service.h"
 #include "device_state.h"
 #include "device_state_machine.h"
 #include "notify/notify_player.h"
+#include "ota.h"
+#include "protocol.h"
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
@@ -152,6 +152,9 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
+    // ACOS 连续对话：播放结束后才切回监听，静默计时仅统计没有用户输入的时间。
+    int64_t acos_last_input_us_ = 0;
+    bool acos_response_done_ = false;
     TaskHandle_t activation_task_handle_ = nullptr;
 
 

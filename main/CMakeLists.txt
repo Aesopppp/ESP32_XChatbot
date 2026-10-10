@@ -33,6 +33,8 @@ set(SOURCES "audio/audio_codec.cc"
             "protocols/text_glyph_payload.cc"
             "protocols/mqtt_protocol.cc"
             "protocols/websocket_protocol.cc"
+            "protocols/acos_protocol.cc"
+            "protocols/acos_response_flow_checks.cc"
             "mcp_server.cc"
             "system_info.cc"
             "application.cc"
@@ -44,6 +46,17 @@ set(SOURCES "audio/audio_codec.cc"
             )
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+
+if(CONFIG_USE_ACOS)
+    # 私密配置只生成到 build；不会进入版本库，也不写进公共 Kconfig 默认值。
+    set(ACOS_LOCAL_CONFIG "${PROJECT_DIR}/.local/acos.json")
+    set(ACOS_GENERATOR "${PROJECT_DIR}/tools/generate_acos_config.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ACOS_LOCAL_CONFIG}" "${ACOS_GENERATOR}")
+    execute_process(COMMAND "${PYTHON}" "${ACOS_GENERATOR}" "${ACOS_LOCAL_CONFIG}"
+                    "${CMAKE_CURRENT_BINARY_DIR}/acos_local_config.h"
+                    COMMAND_ERROR_IS_FATAL ANY)
+    list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
 
 # Add board common files
 list(APPEND SOURCES
@@ -306,6 +319,13 @@ elseif(CONFIG_BOARD_TYPE_ESP_HI)
     set(DEFAULT_ASSETS_EXTRA_FILES "${CMAKE_BINARY_DIR}/emoji")
 elseif(CONFIG_BOARD_TYPE_ESP_VOCAT)
     set(BOARD_DIR "espressif/esp-vocat")
+    set(WIFI_LOCAL_CONFIG "${PROJECT_DIR}/.local/wifi.json")
+    set(WIFI_GENERATOR "${PROJECT_DIR}/tools/generate_wifi_config.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${WIFI_LOCAL_CONFIG}" "${WIFI_GENERATOR}")
+    execute_process(COMMAND "${PYTHON}" "${WIFI_GENERATOR}" "${WIFI_LOCAL_CONFIG}"
+                    "${CMAKE_CURRENT_BINARY_DIR}/wifi_local_config.h"
+                    COMMAND_ERROR_IS_FATAL ANY)
+    list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_20_4)
     set(BUILTIN_ICON_FONT font_material_symbols_20_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
@@ -1197,6 +1217,8 @@ add_custom_command(
 add_custom_target(lang_header ALL
     DEPENDS ${LANG_HEADER}
 )
+# Application sources include this generated header, so generate it before compiling them.
+add_dependencies(${COMPONENT_LIB} lang_header)
 
 # Find ESP-SR component dynamically
 find_component_by_pattern("espressif__esp-sr" ESP_SR_COMPONENT ESP_SR_COMPONENT_PATH)
@@ -1210,7 +1232,7 @@ if(NOTO_FONTS_COMPONENT_PATH)
     set(NOTO_FONTS_PATH "${NOTO_FONTS_COMPONENT_PATH}")
 endif()
 
-if(CONFIG_BOARD_TYPE_ESP_VOCAT)
+if(CONFIG_BOARD_TYPE_ESP_VOCAT AND CONFIG_FLASH_EXPRESSION_ASSETS)
     find_component_by_pattern("esp_emote_assets" EMOTE_ASSETS_COMPONENT EMOTE_ASSETS_PATH)
     if(EMOTE_ASSETS_PATH)
         file(REMOVE_RECURSE "${ESP_VOCAT_ASSETS_STAGING}")
@@ -1228,7 +1250,22 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT)
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
         file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/emoji/battery_connected.eaf"
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
+        # The expression bundle must use the configured model, not the vendor's bundled wake word.
+        execute_process(
+            COMMAND ${PYTHON} "${PROJECT_DIR}/scripts/prepare_vocat_wake_assets.py"
+                --sdkconfig "${SDKCONFIG}"
+                --model-path "${ESP_SR_MODEL_PATH}"
+                --config "${EMOTE_ASSETS_PATH}/360_360/config.json"
+                --staging "${ESP_VOCAT_ASSETS_STAGING}"
+            RESULT_VARIABLE ESP_VOCAT_WAKE_RESULT
+        )
+        if(NOT ESP_VOCAT_WAKE_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to prepare configured VoCat WakeNet assets")
+        endif()
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${PROJECT_DIR}/scripts/prepare_vocat_wake_assets.py"
+            "${PROJECT_DIR}/scripts/build_default_assets.py"
+            "${EMOTE_ASSETS_PATH}/360_360/config.json"
             "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/assets/360_360/emote.json"
             "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/emoji/low_battery.eaf"
             "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/emoji/battery_connected.eaf"

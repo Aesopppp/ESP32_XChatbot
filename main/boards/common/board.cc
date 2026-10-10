@@ -8,12 +8,36 @@
 #include <esp_log.h>
 #include <esp_ota_ops.h>
 #include <esp_random.h>
+#include <cJSON.h>
+
+#include <cctype>
 
 #define TAG "Board"
 
 Board::Board() {
     Settings settings("board", true);
     uuid_ = settings.GetString("uuid");
+    // Older firmware may store this NVS string as a JSON-encoded string,
+    // including quotation marks. Keep the same device identity when migrating.
+    if (!uuid_.empty() && uuid_.front() == '"') {
+        cJSON* stored_uuid =
+            cJSON_ParseWithLengthOpts(uuid_.c_str(), uuid_.size() + 1, nullptr, true);
+        if (cJSON_IsString(stored_uuid)) {
+            const std::string decoded_uuid = stored_uuid->valuestring;
+            bool valid_uuid = decoded_uuid.size() == 36;
+            for (size_t i = 0; valid_uuid && i < decoded_uuid.size(); ++i) {
+                const bool separator = i == 8 || i == 13 || i == 18 || i == 23;
+                valid_uuid = separator ? decoded_uuid[i] == '-'
+                                       : std::isxdigit(static_cast<unsigned char>(decoded_uuid[i]));
+            }
+            if (valid_uuid) {
+                uuid_ = decoded_uuid;
+                settings.SetString("uuid", uuid_);
+                ESP_LOGI(TAG, "Migrated legacy JSON-encoded UUID; device identity preserved");
+            }
+        }
+        cJSON_Delete(stored_uuid);
+    }
     if (uuid_.empty()) {
         uuid_ = GenerateUuid();
         settings.SetString("uuid", uuid_);

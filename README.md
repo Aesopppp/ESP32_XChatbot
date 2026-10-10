@@ -1,4 +1,26 @@
-# An MCP-based Chatbot
+# ESP32_XChatbot
+
+ESP-VoCat v1.2 voice assistant based on [XiaoZhi ESP32](https://github.com/78/xiaozhi-esp32),
+using the ACOS WebSocket service. Recommended SDK: ESP-IDF 6.1.
+
+- Local wake word: 你好小益 (你好小易 is pronounced the same).
+- Continuous conversation; one minute of silence returns to wake-word standby.
+- AEC microphone uplink during playback, with interruption confirmed by ACOS speech events.
+- VoCat display, Wi-Fi provisioning, optional preset hotspot, and startup volume 40/100.
+- Bounded audio queues, playback buffering, reconnect handling, and diagnostic logs.
+
+See [ACOS setup and behavior](ACOS_GUIDE_CN.md) and [development guide](DEV_GUIDE_CN.md).
+Create your own `.local/acos.json` from `tools/acos-config.example.json` before using ACOS.
+Credentials, build output, and downloaded dependencies are excluded from this repository.
+The PowerShell environment script and VS Code workspace contain paths for the original
+development machine; adjust them for your ESP-IDF installation.
+
+The original upstream README is retained below. Its cloud/MCP features do not automatically
+apply to ACOS mode; the ACOS guide describes the implemented behavior and limitations.
+
+---
+
+# Upstream XiaoZhi ESP32
 
 (English | [中文](README_zh.md) | [日本語](README_ja.md))
 

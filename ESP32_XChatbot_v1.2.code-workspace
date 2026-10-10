@@ -1,0 +1,26 @@
+{
+  "folders": [{ "name": "ESP32_XChatbot_v1.2", "path": "." }],
+  "settings": {
+    "python.defaultInterpreterPath": "D:\\Develop_C\\Espnew\\610_Tool\\python_env\\idf6.1_py3.11_env\\Scripts\\python.exe",
+    "python-envs.workspaceSearchPaths": [
+      ".venv",
+      "*/.venv",
+      "D:\\Develop_C\\Espnew\\610_Tool\\python_env\\idf6.1_py3.11_env"
+    ],
+    "idf.espIdfPathWin": "D:\\Develop_C\\Espnew\\v6.1\\esp-idf",
+    "idf.toolsPathWin": "D:\\Develop_C\\Espnew\\610_Tool",
+    "idf.pythonInstallPath": "D:\\Develop_C\\Espnew\\610_Tool\\python_env\\idf6.1_py3.11_env\\Scripts\\python.exe",
+    "idf.buildPathWin": "${workspaceFolder}\\build",
+    "idf.ninjaArgs": ["-j", "2"],
+    "idf.customExtraVars": {
+      "IDF_PATH": "D:\\Develop_C\\Espnew\\v6.1\\esp-idf",
+      "IDF_TOOLS_PATH": "D:\\Develop_C\\Espnew\\610_Tool",
+      "IDF_PYTHON_ENV_PATH": "D:\\Develop_C\\Espnew\\610_Tool\\python_env\\idf6.1_py3.11_env",
+      "IDF_TARGET": "esp32s3",
+      "IDF_PY_BUILD_JOBS": "2",
+      "PYTHONUTF8": "1",
+      "PYTHONIOENCODING": "utf-8"
+    }
+  },
+  "extensions": { "recommendations": ["espressif.esp-idf-extension"] }
+}

@@ -11,6 +11,9 @@
 #include "system_info.h"
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
+#if CONFIG_USE_ACOS
+#include "acos_protocol.h"
+#endif
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -24,7 +27,9 @@
 Application::Application() : notify_player_(audio_service_) {
     event_group_ = xEventGroupCreate();
 
-#if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
+#if CONFIG_USE_ACOS && CONFIG_ACOS_BARGE_IN
+    aec_mode_ = kAecOnDeviceSide;
+#elif CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
 #elif CONFIG_USE_DEVICE_AEC
     aec_mode_ = kAecOnDeviceSide;
@@ -71,6 +76,10 @@ void Application::Initialize() {
     // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
+#if CONFIG_USE_ACOS && CONFIG_ACOS_BARGE_IN
+    audio_service_.EnableDeviceAec(true);
+    ESP_LOGI(TAG, "ACOS barge-in: server speech confirmation, continuous AEC uplink");
+#endif
     audio_service_.Start();
     ESP_LOGI(TAG, "After board/audio init");
     SystemInfo::PrintHeapStats();
@@ -185,7 +194,12 @@ void Application::Run() {
         MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED;
 
     while (true) {
+#if CONFIG_USE_ACOS
+        auto bits =
+            xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, pdMS_TO_TICKS(10));
+#else
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
+#endif
 
         if (bits & MAIN_EVENT_ERROR) {
             if (GetDeviceState() == kDeviceStateNotifying) {
@@ -283,6 +297,34 @@ void Application::Run() {
                 // SystemInfo::PrintTaskCpuUsage(pdMS_TO_TICKS(1000));
             }
         }
+#if CONFIG_USE_ACOS
+        // 先应用状态变更，再消费下一帧；首包不会在 speaking 初始化前丢失。
+        if (protocol_ && activation_task_handle_ == nullptr) {
+            const auto now = esp_timer_get_time();
+            // 本地 VAD 不能可靠区分用户讲话与残留回声；由 ACOS 的
+            // speech_started 确认打断，期间持续上传 AEC 音频以保留句首。
+            // 有界批量补充解码队列；状态切换仍必须先于下一帧音频。
+            for (int i = 0; i < 6; ++i) {
+                if (xEventGroupGetBits(event_group_) & MAIN_EVENT_STATE_CHANGED)
+                    break;
+                protocol_->Poll();
+            }
+            if (acos_response_done_ && audio_service_.IsPlaybackIdle()) {
+                acos_response_done_ = false;
+                if (GetDeviceState() == kDeviceStateSpeaking)
+                    SetListeningMode(GetDefaultListeningMode());
+            }
+            if (GetDeviceState() == kDeviceStateListening && audio_service_.IsVoiceDetected()) {
+                acos_last_input_us_ = now;
+            }
+            if (protocol_->IsAudioChannelOpened() && GetDeviceState() == kDeviceStateListening &&
+                audio_service_.IsPlaybackIdle() && acos_last_input_us_ > 0 &&
+                now - acos_last_input_us_ >= int64_t(CONFIG_ACOS_IDLE_SECONDS) * 1000000) {
+                ESP_LOGI(TAG, "ACOS silence timeout; waiting for local wake word");
+                protocol_->CloseAudioChannel();
+            }
+        }
+#endif
     }
 }
 
@@ -370,7 +412,12 @@ void Application::ActivationTask() {
     CheckAssetsVersion();
 
     // Check for new firmware version
+#if CONFIG_USE_ACOS
+    // ACOS 自行鉴权，跳过小智激活及 OTA，避免固件被云端替换回小智版本。
+    ota_->MarkCurrentVersionValid();
+#else
     CheckNewVersion();
+#endif
 
     // Initialize the protocol
     InitializeProtocol();
@@ -535,6 +582,12 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
+#if CONFIG_USE_ACOS
+    auto acos = std::make_unique<AcosProtocol>();
+    acos->SetPlaybackReady([this] { return audio_service_.CanAcceptDecodePacket(); });
+    acos->SetPlaybackIdle([this] { return audio_service_.IsPlaybackIdle(); });
+    protocol_ = std::move(acos);
+#else
     if (ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota_->HasWebsocketConfig()) {
@@ -543,6 +596,7 @@ void Application::InitializeProtocol() {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
         protocol_ = std::make_unique<MqttProtocol>();
     }
+#endif
 
     protocol_->OnConnected([this]() { DismissAlert(); });
 
@@ -583,6 +637,42 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
+#if CONFIG_USE_ACOS
+        // ACOS 的这些通知由 Poll 在主任务触发，可以直接更新状态。
+        if (strcmp(type->valuestring, "acos.audio.start") == 0) {
+            acos_response_done_ = false;
+            aborted_ = false;
+            SetDeviceState(kDeviceStateSpeaking);
+            return;
+        } else if (strcmp(type->valuestring, "acos.audio.done") == 0) {
+            acos_response_done_ = true;  // 等待实际播放完毕，不能按网络结束提前休眠。
+            return;
+        } else if (strcmp(type->valuestring, "acos.speech_started") == 0) {
+            acos_last_input_us_ = esp_timer_get_time();
+            acos_response_done_ = false;
+            audio_service_.ResetDecoder();
+            if (GetDeviceState() == kDeviceStateSpeaking)
+                SetListeningMode(GetDefaultListeningMode());
+            ESP_LOGI(
+                TAG,
+                "ACOS server speech confirmed; old playback cleared, microphone remains active");
+            return;
+        } else if (strcmp(type->valuestring, "acos.speech_stopped") == 0) {
+            acos_last_input_us_ = esp_timer_get_time();
+            return;
+        } else if (strcmp(type->valuestring, "acos.disconnected") == 0) {
+            acos_response_done_ = false;
+            audio_service_.ResetDecoder();
+            if (GetDeviceState() == kDeviceStateSpeaking)
+                SetListeningMode(GetDefaultListeningMode());
+            display->ShowNotification("ACOS 连接中...");
+            return;
+        } else if (strcmp(type->valuestring, "acos.connected") == 0) {
+            DismissAlert();
+            display->ShowNotification("ACOS 已连接");
+            return;
+        }
+#endif
         if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
@@ -910,6 +1000,11 @@ void Application::HandleWakeWordDetectedEvent() {
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
+#if CONFIG_USE_ACOS
+        // 保留持续上传的句首音频；不重启 AFE、不播放会进入麦克风的提示音。
+        audio_service_.EnableWakeWordDetection(true);
+        SetListeningMode(GetDefaultListeningMode());
+#else
         // Clear send queue to avoid sending residues to server
         while (audio_service_.PopPacketFromSendQueue())
             ;
@@ -925,6 +1020,7 @@ void Application::HandleWakeWordDetectedEvent() {
             play_popup_on_listening_ = true;
             SetListeningMode(GetDefaultListeningMode());
         }
+#endif
     } else if (state == kDeviceStateActivating) {
         // Restart the activation check if the wake word is detected during activation
         SetDeviceState(kDeviceStateIdle);
@@ -932,8 +1028,10 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
+#if !CONFIG_USE_ACOS
     // Must run in the main task with the device in idle state
     audio_service_.EncodeWakeWord();
+#endif
 
     // Always pass through the connecting state, even if the audio channel is
     // already opened. ContinueWakeWordInvoke() rejects any other state, so
@@ -976,7 +1074,11 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
-#if CONFIG_SEND_WAKE_WORD_DATA
+#if CONFIG_USE_ACOS
+    protocol_->SendWakeWordDetected(wake_word);
+    // 唤醒词不上传给 ACOS 当成用户问题；直接打开后续麦克风流。
+    SetListeningMode(GetDefaultListeningMode());
+#elif CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {
         protocol_->SendAudio(std::move(packet));
@@ -1089,7 +1191,7 @@ void Application::StartListeningAudio() {
 }
 
 void Application::ConfigureWakeWordForListening() {
-#ifdef CONFIG_WAKE_WORD_DETECTION_IN_LISTENING
+#if defined(CONFIG_WAKE_WORD_DETECTION_IN_LISTENING) || CONFIG_USE_ACOS
     // Enable wake word detection in listening mode (configured via Kconfig)
     audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
 #else
@@ -1175,12 +1277,24 @@ void Application::Schedule(std::function<void()>&& callback) {
 void Application::AbortSpeaking(AbortReason reason) {
     ESP_LOGI(TAG, "Abort speaking");
     aborted_ = true;
+#if CONFIG_USE_ACOS
+    // 先停本地播放，再交给网络线程发送取消；不清理麦克风队列。
+    acos_response_done_ = false;
+    audio_service_.ResetDecoder();
+#endif
     if (protocol_) {
         protocol_->SendAbortSpeaking(reason);
     }
+#if CONFIG_USE_ACOS
+    if (GetDeviceState() == kDeviceStateSpeaking)
+        SetListeningMode(GetDefaultListeningMode());
+#endif
 }
 
 void Application::SetListeningMode(ListeningMode mode) {
+#if CONFIG_USE_ACOS
+    acos_last_input_us_ = esp_timer_get_time();
+#endif
     listening_mode_ = mode;
     SetDeviceState(kDeviceStateListening);
 }

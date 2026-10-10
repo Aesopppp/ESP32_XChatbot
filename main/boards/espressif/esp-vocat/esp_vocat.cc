@@ -6,7 +6,10 @@
 #include "display/emote_display.h"
 #include "display/lcd_display.h"
 #include "esp_video.h"
+#include "settings.h"
 #include "wifi_board.h"
+#include "wifi_local_config.h"
+#include <ssid_manager.h>
 
 #include <esp_log.h>
 #include <esp_system.h>
@@ -1147,6 +1150,15 @@ public:
 #ifdef CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
         InitializeCamera();
 #endif  // CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
+
+        // 音频服务稍后从 NVS 读取音量：每次开机设为 40，运行中仍可语音调节。
+        // 已经是 40 时不重复写 Flash。
+        constexpr int kBootVolume = 40;
+        Settings audio_settings("audio", true);
+        if (audio_settings.GetInt("output_volume", -1) != kBootVolume) {
+            audio_settings.SetInt("output_volume", kBootVolume);
+        }
+        ESP_LOGI(TAG, "Boot speaker volume set to %d", kBootVolume);
     }
 
     virtual AudioCodec* GetAudioCodec() override {
@@ -1156,6 +1168,27 @@ public:
             AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, AUDIO_CODEC_ES7210_ADDR,
             AUDIO_INPUT_REFERENCE);
         return &audio_codec;
+    }
+
+    void StartNetwork() override {
+        // 本地预置热点加入现有配网列表；凭据不变时不重复写 NVS。
+        const std::string ssid = WIFI_LOCAL_SSID;
+        const std::string password = WIFI_LOCAL_PASSWORD;
+        if (!ssid.empty()) {
+            auto& manager = SsidManager::GetInstance();
+            bool saved = false;
+            for (const auto& item : manager.GetSsidList()) {
+                if (item.ssid == ssid && item.password == password) {
+                    saved = true;
+                    break;
+                }
+            }
+            if (!saved) {
+                manager.AddSsid(ssid, password);
+            }
+            ESP_LOGI(TAG, "Bootstrap WiFi available: %s", ssid.c_str());
+        }
+        WifiBoard::StartNetwork();
     }
 
     virtual Display* GetDisplay() override { return display_; }
