@@ -1250,6 +1250,16 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND CONFIG_FLASH_EXPRESSION_ASSETS)
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
         file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/emoji/battery_connected.eaf"
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
+        execute_process(
+            COMMAND ${PYTHON} "${PROJECT_DIR}/scripts/prepare_vocat_speaker_icon.py"
+                --source "${EMOTE_ASSETS_PATH}/emoji_large/icon_speaker.bin"
+                --wave-alpha "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/assets/icon_speaker_waves.hex"
+                --output "${ESP_VOCAT_ASSETS_STAGING}/emoji_large/icon_speaker.bin"
+            RESULT_VARIABLE ESP_VOCAT_SPEAKER_RESULT
+        )
+        if(NOT ESP_VOCAT_SPEAKER_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to prepare VoCat playback icon")
+        endif()
         # The expression bundle must use the configured model, not the vendor's bundled wake word.
         execute_process(
             COMMAND ${PYTHON} "${PROJECT_DIR}/scripts/prepare_vocat_wake_assets.py"
@@ -1263,6 +1273,9 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND CONFIG_FLASH_EXPRESSION_ASSETS)
             message(FATAL_ERROR "Failed to prepare configured VoCat WakeNet assets")
         endif()
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${PROJECT_DIR}/scripts/prepare_vocat_speaker_icon.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/assets/icon_speaker_waves.hex"
+            "${EMOTE_ASSETS_PATH}/emoji_large/icon_speaker.bin"
             "${PROJECT_DIR}/scripts/prepare_vocat_wake_assets.py"
             "${PROJECT_DIR}/scripts/build_default_assets.py"
             "${EMOTE_ASSETS_PATH}/360_360/config.json"
