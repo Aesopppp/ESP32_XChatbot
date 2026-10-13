@@ -23,6 +23,23 @@ VAD 持续 240ms 直接停止播放，避免残留回声触发本地误打断。
 
 ## 配置和编译
 
+### 屏幕时间同步
+
+ACOS 模式不调用小智激活接口，因此使用独立的 SNTP 自动校时。
+设备获得网络连接后请求 NTP 时间，屏幕按北京时间（UTC+8）显示，通常几秒后更新；
+不需要唤醒设备，也不需要 ACOS 返回时间。第一次请求失败时，每 45 秒换一个备用服务器重试。
+服务器依次为 `ntp.aliyun.com`、`ntp.tencent.com`、`pool.ntp.org`。
+成功后由 SNTP 按工程默认间隔每小时校准，断网时继续走时，重新联网再校准。
+
+串口出现 `NetworkTime: Time synchronized: ... CST (UTC+8)` 表示校时成功。
+若持续显示 `No time reply`，检查该 Wi-Fi 是否能访问互联网，以及 DNS、UDP 123 是否被限制。
+完整断电后没有依赖独立电池 RTC 保持绝对时间，需要联网重新校时；
+首次校时完成前显示的时间不准确。修改固件后需要重新编译、烧录才生效。
+实现位于 `main/network_time.*`，时区使用 POSIX 写法 `CST-8`，系统内部保存 UTC，
+不能再手工给 NTP 时间戳加 8 小时。
+
+### ACOS 连接配置
+
 私密文件 `.local/acos.json` 已加入 Git 忽略。可从 `tools/acos-config.example.json`
 复制生成；其中 `url` 填 ACOS 的 `wss://` 地址，`token` 填对应模型的凭据。
 配置只在编译时生成到 build 头文件，不打印 token。NVS 的 `acos/url`、`acos/token`

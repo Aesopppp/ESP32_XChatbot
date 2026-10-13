@@ -16,6 +16,7 @@
 #include "websocket_protocol.h"
 #if CONFIG_USE_ACOS
 #include "acos_protocol.h"
+#include "network_time.h"
 #endif
 
 #include <driver/gpio.h>
@@ -124,6 +125,14 @@ void Application::Initialize() {
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
         auto display = Board::GetInstance().GetDisplay();
+
+#if CONFIG_USE_ACOS
+        // 保留网络事件的先后顺序。事件位会合并快速断线/重连，不能据此停止刚启动的校时。
+        if (event == NetworkEvent::Connected)
+            Schedule([]() { NetworkTime::OnConnected(); });
+        else if (event == NetworkEvent::Disconnected || event == NetworkEvent::Scanning)
+            Schedule([]() { NetworkTime::OnDisconnected(); });
+#endif
 
         switch (event) {
             case NetworkEvent::Scanning:
@@ -297,6 +306,9 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+#if CONFIG_USE_ACOS
+            NetworkTime::Poll();
+#endif
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
