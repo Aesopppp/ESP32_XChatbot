@@ -24,6 +24,10 @@
 
 ## 手机重新配网
 
+设备配网热点的完整名称固定为 **`XChatbot-esp32s3`**，不再附加 MAC 地址后缀。
+手机 Wi-Fi 列表、设备屏幕和入网二维码使用同一名称。烧录新版固件后生效，
+无需清除已保存的路由器/手机热点密码。多台设备在附近时，建议逐台开启配网热点。
+
 1. 通过菜单确认配网，或在设备已正常启动后长按 BOOT。
 2. 等待设备显示热点名和二维码。用手机系统相机扫描二维码加入设备热点；
    如果手机不支持 Wi-Fi 二维码，在手机 Wi-Fi 设置里手动选择屏幕上的热点。
@@ -69,6 +73,9 @@
 - `scripts/generate_vocat_menu_font.py`：更新菜单文案后重新生成字库；需要 Node.js/npx。
   字体来自 LVGL 附带的思源黑体，许可证在同目录 `vocat_menu_font_LICENSE.txt`。
 - `main/boards/common/wifi_board.*`：按协议释放完成通知顺序进入配网，不依赖固定延迟。
+- `main/boards/espressif/esp-vocat/wifi_ap_name.cmake`：VoCat 配网热点完整名称。
+  构建时生成 AP 源文件副本，仅替换 SSID 生成方法，不修改 `managed_components`。
+  依赖更新后若方法不匹配，构建会明确报错，需核对适配；不要手工修改 `build` 中的副本。
 - `main/application.*`：释放 ACOS 网络线程时保持主循环运行，完成后继续配网。
 
 菜单直接使用现有 Emote/GFX 绘制任务和 LCD 回调，不另起第二套屏幕驱动。

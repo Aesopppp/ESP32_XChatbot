@@ -11,3 +11,8 @@ idf_build_set_property(MINIMAL_BUILD ON)
 
 set(PROJECT_VER "2.5.1")
 project(xiaozhi)
+
+# 板级配网热点定制：依赖注册完成后再替换构建输入，不修改托管组件文件。
+if(CONFIG_BOARD_TYPE_ESP_VOCAT)
+    include(main/boards/espressif/esp-vocat/wifi_ap_name.cmake)
+endif()
