@@ -23,7 +23,7 @@ GitHub 仓库名为 `ESP32_XChatbot`，本机目录和板型仍为 ESP-VoCat v1.
 - 配置：16 MB Flash、Octal PSRAM、中文、VoCat 表情动画资源
 - 当前唤醒词：**你好小益**（“你好小易”同音）。构建入口选择 `wn9_nihaoxiaoyi_tts2`，VoCat 表情资源包按 sdkconfig 重新打包所选 WakeNet；以启动日志的 `AfeAudioEngine: Model` 为准。
 - 编译并行度：2
-- 开机音量：50/100。每次启动恢复到 50，运行中可通过屏幕底部上滑打开设置调整音量和亮度。重新配网及使用方法见 [VoCat 设置说明](docs/VOCAT_SETTINGS_CN.md)。
+- 开机音量：恢复上次保存值（包括 0 静音），首次使用或记录无效时默认 50/100。屏幕底部上滑打开设置，音量和亮度调整后自动保存。重新配网及使用方法见 [VoCat 设置说明](docs/VOCAT_SETTINGS_CN.md)。
 
 用 VSCode 打开 `ESP32_XChatbot_v1.2.code-workspace`，或直接打开工程根目录。
 此目录可直接开发，不包含多层 examples/agent/chatbot 结构。

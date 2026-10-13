@@ -1221,14 +1221,16 @@ public:
         InitializeCamera();
 #endif  // CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
 
-        // 音频服务稍后从 NVS 读取音量：每次开机设为 50，菜单中仍可调节。
-        // 已经是 50 时不重复写 Flash；亮度则沿用上次保存值。
-        constexpr int kBootVolume = 50;
+        // 菜单调整音量时已写入 NVS；开机保留上次的有效值（包括 0 静音）。
+        // 仅首次使用或记录无效时初始化为 50，音频服务稍后读取并应用。
+        constexpr int kInitialVolume = 50;
         Settings audio_settings("audio", true);
-        if (audio_settings.GetInt("output_volume", -1) != kBootVolume) {
-            audio_settings.SetInt("output_volume", kBootVolume);
+        int saved_volume = audio_settings.GetInt("output_volume", -1);
+        if (saved_volume < 0 || saved_volume > 100) {
+            saved_volume = kInitialVolume;
+            audio_settings.SetInt("output_volume", saved_volume);
         }
-        ESP_LOGI(TAG, "Boot speaker volume set to %d", kBootVolume);
+        ESP_LOGI(TAG, "Boot speaker volume: %d", saved_volume);
     }
 
     // 静态实例与设备同寿命；24 kHz 硬件音频由 AudioService 转换到网络采样率。
