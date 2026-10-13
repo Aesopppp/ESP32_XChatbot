@@ -141,6 +141,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
         case NetworkEvent::WifiConfigModeEnter:
             ESP_LOGI(TAG, "WiFi config mode entered");
             in_config_mode_ = true;
+            config_request_pending_ = false;
             break;
         case NetworkEvent::WifiConfigModeExit:
             ESP_LOGI(TAG, "WiFi config mode exited");
@@ -174,8 +175,9 @@ void WifiBoard::OnWifiConnectTimeout(void* arg) {
 // 提示音/UI 更新通过 Schedule 交给主循环，避免网络回调直接执行应用操作。
 void WifiBoard::StartWifiConfigMode() {
     in_config_mode_ = true;
-    // Transition to wifi configuring state
-    Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
+    // 网络任务只投递状态变更，应用状态和音频副作用在主循环执行。
+    Application::GetInstance().Schedule(
+        []() { Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring); });
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
     auto& wifi_manager = WifiManager::GetInstance();
 
@@ -197,47 +199,49 @@ void WifiBoard::StartWifiConfigMode() {
 #endif
 }
 
-// 从对话中重新配网，先重置协议，再延迟停止 STA/启动 AP，避免旧连接仍上传音频。
+// 从对话中重新配网：先完成协议释放，再停止采集/旧播放，最后后台切换网络。
+// 不清除原 SSID 列表或 ACOS 设置；网页验证新网络成功之后才保存凭据。
 void WifiBoard::EnterWifiConfigMode() {
-    ESP_LOGI(TAG, "EnterWifiConfigMode called");
-    GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
-
-    auto& app = Application::GetInstance();
-    auto state = app.GetDeviceState();
-
-    if (state == kDeviceStateSpeaking || state == kDeviceStateNotifying ||
-        state == kDeviceStateListening || state == kDeviceStateIdle) {
-        // Reset protocol (close audio channel, reset protocol)
-        Application::GetInstance().ResetProtocol();
-
-        xTaskCreate([](void* arg) {
-            auto* board = static_cast<WifiBoard*>(arg);
-
-            // Wait for 1 second to allow speaking to finish gracefully
-            vTaskDelay(pdMS_TO_TICKS(1000));
-
-            // Stop any ongoing connection attempt
-            esp_timer_stop(board->connect_timer_);
-            WifiManager::GetInstance().StopStation();
-
-            // Enter config mode
-            board->StartWifiConfigMode();
-
-            vTaskDelete(NULL);
-        }, "wifi_cfg_delay", 4096, this, 2, NULL);
+    if (IsInWifiConfigMode() || config_request_pending_.exchange(true))
         return;
-    }
-
-    if (state != kDeviceStateStarting) {
-        ESP_LOGE(TAG, "EnterWifiConfigMode called but device state is not starting or speaking, device state: %d", state);
-        return;
-    }
-
-    // Stop any ongoing connection attempt
-    esp_timer_stop(connect_timer_);
-    WifiManager::GetInstance().StopStation();
-
-    StartWifiConfigMode();
+    Application::GetInstance().Schedule([this]() {
+        auto& app = Application::GetInstance();
+        const auto state = app.GetDeviceState();
+        if (state != kDeviceStateStarting && state != kDeviceStateIdle &&
+            state != kDeviceStateConnecting && state != kDeviceStateListening &&
+            state != kDeviceStateSpeaking && state != kDeviceStateNotifying) {
+            config_request_pending_ = false;
+            ESP_LOGW(TAG, "Skip WiFi setup in state %d", state);
+            return;
+        }
+        GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
+        esp_timer_stop(connect_timer_);
+        app.GetAudioService().EnableVoiceProcessing(false);
+        app.GetAudioService().EnableWakeWordDetection(false);
+        app.GetAudioService().ResetDecoder();
+        app.ResetProtocol([this]() {
+            auto& app = Application::GetInstance();
+            app.GetAudioService().EnableVoiceProcessing(false);
+            app.GetAudioService().EnableWakeWordDetection(false);
+            app.GetAudioService().ResetDecoder();
+            if (app.GetDeviceState() != kDeviceStateStarting &&
+                app.GetDeviceState() != kDeviceStateWifiConfiguring)
+                app.SetDeviceState(kDeviceStateIdle);
+            app.SetDeviceState(kDeviceStateWifiConfiguring);
+            if (xTaskCreate(
+                    [](void* arg) {
+                        auto* board = static_cast<WifiBoard*>(arg);
+                        WifiManager::GetInstance().StopStation();
+                        board->StartWifiConfigMode();
+                        vTaskDelete(nullptr);
+                    },
+                    "wifi_setup", 4096, this, 2, nullptr) != pdPASS) {
+                config_request_pending_ = false;
+                ESP_LOGE(TAG, "Cannot start WiFi setup task");
+                app.Reboot();
+            }
+        });
+    });
 }
 
 bool WifiBoard::IsInWifiConfigMode() const {

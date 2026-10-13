@@ -379,7 +379,8 @@ void Application::HandleNetworkDisconnectedEvent() {
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
         state == kDeviceStateSpeaking) {
         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
-        protocol_->CloseAudioChannel();
+        if (protocol_)
+            protocol_->CloseAudioChannel();
     }
 
     // Update the status bar immediately to show the network state
@@ -939,7 +940,7 @@ void Application::HandleToggleChatEvent() {
 // 延迟到下一次主循环继续打开音频通道，使 Connecting 状态先更新到界面。
 void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     // Check state again in case it was changed during scheduling
-    if (GetDeviceState() != kDeviceStateConnecting) {
+    if (!protocol_ || GetDeviceState() != kDeviceStateConnecting) {
         return;
     }
 
@@ -1211,7 +1212,7 @@ void Application::HandleStateChangedEvent() {
 void Application::StartListeningAudio() {
     // Runs in the main loop, either directly from HandleStateChangedEvent or
     // deferred via MAIN_EVENT_PLAYBACK_DRAINED once the playback queue drains.
-    if (GetDeviceState() != kDeviceStateListening) {
+    if (!protocol_ || GetDeviceState() != kDeviceStateListening) {
         return;
     }
 
@@ -1519,8 +1520,8 @@ void Application::SetAecMode(AecMode mode) {
 void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
 
 // 释放连接和 OTA 对象须与主任务协调；旧回调不可继续引用已销毁的协议对象。
-void Application::ResetProtocol() {
-    Schedule([this]() {
+void Application::ResetProtocol(std::function<void()> after_reset) {
+    Schedule([this, after_reset = std::move(after_reset)]() mutable {
         if (GetDeviceState() == kDeviceStateNotifying) {
             StopNotification();
         }
@@ -1528,7 +1529,37 @@ void Application::ResetProtocol() {
         if (protocol_ && protocol_->IsAudioChannelOpened()) {
             protocol_->CloseAudioChannel();
         }
-        // Reset protocol
+#if CONFIG_USE_ACOS
+        // 从主循环摘下对象后，主循环不再 Poll/上传。ACOS 析构需要等待网络
+        // worker 退出（可能仍在 TLS 连接中），由独立任务完成，避免卡住 UI。
+        struct ResetJob {
+            std::unique_ptr<Protocol> protocol;
+            std::function<void()> completed;
+        };
+        auto job = new ResetJob{std::move(protocol_), std::move(after_reset)};
+        if (xTaskCreate(
+                [](void* arg) {
+                    auto job = static_cast<ResetJob*>(arg);
+                    job->protocol.reset();
+                    // 网络旧回调及 CloseAudioChannel 的 Idle 任务先入队；
+                    // 完成通知最后回到主循环，随后才允许启动新配网连接。
+                    if (job->completed)
+                        Application::GetInstance().Schedule(std::move(job->completed));
+                    delete job;
+                    vTaskDelete(nullptr);
+                },
+                "protocol_reset", 6144, job, 2, nullptr) != pdPASS) {
+            // 内存不足时还原所有权并重启，不在主任务中等待网络析构。
+            protocol_ = std::move(job->protocol);
+            delete job;
+            ESP_LOGE(TAG, "Cannot start protocol reset task");
+            Reboot();
+        }
+#else
+        // 其他协议沿用主循环释放方式，保持 MQTT 定时回调的生命周期约定。
         protocol_.reset();
+        if (after_reset)
+            Schedule(std::move(after_reset));
+#endif
     });
 }

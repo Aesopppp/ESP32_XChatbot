@@ -130,7 +130,7 @@ public:
      * Can be called from any task to release resources allocated after network connected
      * This includes closing audio channel, resetting protocol and ota objects
      */
-    void ResetProtocol();
+    void ResetProtocol(std::function<void()> after_reset = {});
 
 private:
     Application();

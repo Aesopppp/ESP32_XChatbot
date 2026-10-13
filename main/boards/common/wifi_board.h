@@ -1,15 +1,17 @@
 #ifndef WIFI_BOARD_H
 #define WIFI_BOARD_H
 
-#include "board.h"
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
-#include <esp_timer.h>
+#include <atomic>
+#include "board.h"
 
 class WifiBoard : public Board {
 protected:
     esp_timer_handle_t connect_timer_ = nullptr;
     bool in_config_mode_ = false;
+    std::atomic<bool> config_request_pending_{false};
     NetworkEventCallback network_event_callback_ = nullptr;
 
     virtual std::string GetBoardJson() override;

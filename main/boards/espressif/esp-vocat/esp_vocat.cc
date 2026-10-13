@@ -29,6 +29,9 @@
 #include "i2c_bus.h"
 #include "i2c_device.h"
 #include "touch.h"
+#include "vocat_settings_display.h"
+#include "vocat_touch_policy.h"
+#include "wifi_manager.h"
 
 #if ESP_VOCAT_ENABLE_CAP_TOUCH_SENSOR
 extern "C" {
@@ -385,11 +388,15 @@ public:
         }
     }
 
-    void UpdateTouchPoint() {
-        ReadRegs(0x02, read_buffer_, 6);
+    bool UpdateTouchPoint() {
+        // CST816S 空闲可能休眠/NACK；触摸读失败应丢弃手势，不能触发整机重启。
+        const uint8_t reg = 0x02;
+        if (i2c_master_transmit_receive(i2c_device_, &reg, 1, read_buffer_, 6, 30) != ESP_OK)
+            return false;
         tp_.num = read_buffer_[0] & 0x0F;
         tp_.x = ((read_buffer_[1] & 0x0F) << 8) | read_buffer_[2];
         tp_.y = ((read_buffer_[3] & 0x0F) << 8) | read_buffer_[4];
+        return true;
     }
 
     const TouchPoint_t& GetTouchPoint() { return tp_; }
@@ -474,6 +481,7 @@ private:
 #endif
     esp_timer_handle_t emotion_reset_timer_ = nullptr;
     bool bmi270_ready_ = false;
+    bool boot_long_press_ = false;
     bool was_charging_ = false;
     uint8_t low_battery_alert_mask_ = 0;
     int low_battery_plays_left_ = 0;
@@ -779,22 +787,32 @@ private:
             return;
         }
 
+        vocat::TouchPolicy gesture;
         while (true) {
-            if (touchpad->WaitForTouchEvent()) {
-                auto& app = Application::GetInstance();
-                auto& board = (EspVocat&)Board::GetInstance();
-
-                ESP_LOGD(TAG, "Touch event, TP_PIN_NUM_INT: %d", gpio_get_level(TP_PIN_NUM_INT));
-                touchpad->UpdateTouchPoint();
-                auto touch_event = touchpad->CheckTouchEvent();
-
-                if (touch_event == Cst816s::TOUCH_RELEASE) {
-                    if (app.GetDeviceState() == kDeviceStateStarting) {
-                        board.EnterWifiConfigMode();
-                    } else {
+            // 空闲只等中断，按下后才20ms兜底轮询，避免持续访问休眠触摸芯片。
+            touchpad->WaitForTouchEvent(gesture.IsPressed() ? pdMS_TO_TICKS(20) : portMAX_DELAY);
+            if (!touchpad->UpdateTouchPoint()) {
+                gesture.Cancel();
+                continue;
+            }
+            const auto point = touchpad->GetTouchPoint();
+            const auto result = gesture.Update(point.num > 0, point.x, point.y);
+            if (result.gesture != vocat::Gesture::None) {
+                Application::GetInstance().Schedule([result]() {
+                    auto& board = static_cast<EspVocat&>(Board::GetInstance());
+                    auto& app = Application::GetInstance();
+#if CONFIG_USE_EMOTE_MESSAGE_STYLE
+                    auto display = static_cast<VocatSettingsDisplay*>(board.display_);
+                    if (display->HandleTouch(result))
+                        return;
+#endif
+                    if (result.gesture != vocat::Gesture::Tap || board.IsInWifiConfigMode())
+                        return;
+                    if (app.GetDeviceState() == kDeviceStateStarting)
+                        board.RequestWifiSetup();
+                    else
                         app.ToggleChatState();
-                    }
-                }
+                });
             }
         }
     }
@@ -1027,7 +1045,22 @@ private:
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
 
 #if CONFIG_USE_EMOTE_MESSAGE_STYLE
-        display_ = new emote::EmoteDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        auto settings_display =
+            new VocatSettingsDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        settings_display->SetWifiActions(
+            [this]() { return RequestWifiSetup(); },
+            []() {
+                // StopConfigAp 可能等待 HTTP 连接退出，不阻塞音频/应用主循环。
+                if (xTaskCreate(
+                        [](void*) {
+                            WifiManager::GetInstance().StopConfigAp();
+                            vTaskDelete(nullptr);
+                        },
+                        "wifi_menu_exit", 4096, nullptr, 2, nullptr) != pdPASS) {
+                    Application::GetInstance().Reboot();
+                }
+            });
+        display_ = settings_display;
 #else
         display_ = new SpiLcdDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                      DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
@@ -1037,16 +1070,40 @@ private:
         backlight_->RestoreBrightness();
     }
 
-    // BOOT 键在启动阶段进入配网，正常运行时切换对话状态；委托给 Application。
+    bool RequestWifiSetup() {
+        auto state = Application::GetInstance().GetDeviceState();
+        if (state == kDeviceStateActivating || state == kDeviceStateUpgrading ||
+            state == kDeviceStateUnknown || state == kDeviceStateFatalError ||
+            state == kDeviceStateAudioTesting) {
+            display_->ShowNotification("设备正在启动或更新，请稍后配网");
+            return false;
+        }
+        EnterWifiConfigMode();
+#if CONFIG_USE_EMOTE_MESSAGE_STYLE
+        static_cast<VocatSettingsDisplay*>(display_)->ShowProvisioning();
+#endif
+        return true;
+    }
+
+    // BOOT 短按保留对话操作，长按3秒进入配网；消费长按，避免松手再次开关会话。
     void InitializeButtons() {
+        boot_button_.OnPressDown([this]() { boot_long_press_ = false; });
+        boot_button_.OnLongPress([this]() {
+            boot_long_press_ = true;
+            Application::GetInstance().Schedule([this]() { RequestWifiSetup(); });
+        });
         boot_button_.OnClick([this]() {
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting) {
-                ESP_LOGI(TAG, "Boot button pressed, enter WiFi configuration mode");
-                EnterWifiConfigMode();
+            if (boot_long_press_)
                 return;
-            }
-            app.ToggleChatState();
+            Application::GetInstance().Schedule([this]() {
+                auto& app = Application::GetInstance();
+                if (IsInWifiConfigMode())
+                    return;
+                if (app.GetDeviceState() == kDeviceStateStarting)
+                    RequestWifiSetup();
+                else
+                    app.ToggleChatState();
+            });
         });
         gpio_config_t power_gpio_config = {
             .pin_bit_mask = (BIT64(POWER_CTRL)),
@@ -1138,7 +1195,7 @@ public:
 
     // 顺序依赖：I2C -> PCB/供电 -> 外设 -> SPI/屏幕 -> 交互输入。
     // AudioCodec 首次获取时才创建，必须使用已判定的 PCB 引脚。
-    EspVocat() : boot_button_(BOOT_BUTTON_GPIO) {
+    EspVocat() : boot_button_(BOOT_BUTTON_GPIO, false, 3000) {
         const esp_timer_create_args_t emotion_timer_args = {
             .callback = &EspVocat::emotion_reset_timer_callback,
             .arg = this,
@@ -1164,9 +1221,9 @@ public:
         InitializeCamera();
 #endif  // CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
 
-        // 音频服务稍后从 NVS 读取音量：每次开机设为 60，运行中仍可语音调节。
-        // 已经是 60 时不重复写 Flash。
-        constexpr int kBootVolume = 60;
+        // 音频服务稍后从 NVS 读取音量：每次开机设为 50，菜单中仍可调节。
+        // 已经是 50 时不重复写 Flash；亮度则沿用上次保存值。
+        constexpr int kBootVolume = 50;
         Settings audio_settings("audio", true);
         if (audio_settings.GetInt("output_volume", -1) != kBootVolume) {
             audio_settings.SetInt("output_volume", kBootVolume);
