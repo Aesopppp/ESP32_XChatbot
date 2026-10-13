@@ -1243,10 +1243,11 @@ public:
     }
 
     void StartNetwork() override {
-        // 本地预置热点加入现有配网列表；凭据不变时不重复写 NVS。
-        const std::string ssid = WIFI_LOCAL_SSID;
-        const std::string password = WIFI_LOCAL_PASSWORD;
-        if (!ssid.empty()) {
+        // 将本机私有配置中的多组热点加入现有配网列表，不清空已保存的网络。
+        // 同名网络可更新密码；凭据不变时不重复写 NVS，也不改变原有排序。
+        for (const auto& network : wifi_local::kNetworks) {
+            const std::string ssid = network.ssid;
+            const std::string password = network.password;
             auto& manager = SsidManager::GetInstance();
             bool saved = false;
             for (const auto& item : manager.GetSsidList()) {

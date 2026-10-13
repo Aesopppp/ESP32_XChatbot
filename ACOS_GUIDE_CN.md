@@ -94,6 +94,11 @@ menuconfig → Xiaozhi Assistant：
   防止取消确认早于讲话结束时，旧尾音被当成新回答。
   原始二进制音频不含 response_id，过滤依赖 ACOS 正确发送、排序这些边界事件。
 - `response.audio.done` 不代表扬声器播放完毕，等音频队列实际排空再回到监听。
+- 静默待机默认 60 秒（`CONFIG_ACOS_IDLE_SECONDS`）。首次唤醒、回答实际播完或显式
+  打断后开始完整的等待时间；ACOS 的 `speech_started` / `speech_stopped` 确认用户输入。
+  正在讲话或播放回答时不会触发静默待机。本地 VAD、持续上传的静音帧和网络心跳
+  不重置计时，避免风扇/环境噪声或残余回声导致一直无法待机。
+  云端语音检测若误判环境声，仍可能延长会话；可用下列诊断日志区分。
 - 断线后每 5 秒重试并重新鉴权；保持对话的唤醒状态，但丢弃旧连接音频。
   待机保持连接，并通过 Ping/Pong 检查存活；休眠不等同于断网。
   上述保持唤醒针对 WebSocket 重连；Wi-Fi 完全断开时，应用会结束会话，恢复后需重新唤醒。
@@ -125,3 +130,8 @@ menuconfig → Xiaozhi Assistant：
 - `Audio stats`：每 10 秒统计接收帧数、收发队列深度、丢弃上行/旧下行帧数、
   断粮次数及该窗口内最大下行音频间隔（ms）。大间隔提示到达不连续，不能单凭它
   区分 Wi-Fi、服务器生成停顿或设备接收任务调度。
+- `ACOS idle: quiet=.../60s local_vad=... server_speech=... playback_idle=...`：
+  监听中每 10 秒打印静默计时。`local_vad=1` 本身不会续期；`server_speech=1`
+  表示云端确认正在讲话，此时暂停静默超时。到期先打印 `ACOS silence timeout (60s)`，
+  再关闭麦克风上传、回到待命，保留 WebSocket 和本地唤醒词检测。
+  单独出现 `Conversation asleep` 不能证明超时，触屏/BOOT 手动结束也会打印这行。

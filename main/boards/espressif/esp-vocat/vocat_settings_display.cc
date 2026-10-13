@@ -45,6 +45,7 @@ void VocatSettingsDisplay::ResetObjects() {
     }
     created_ = false;
     items_.fill(nullptr);
+    button_backgrounds_.fill(nullptr);
     text_.fill("");
     qr_data_.clear();
     page_ = Page::Face;
@@ -66,6 +67,28 @@ bool VocatSettingsDisplay::EnsureObjects() {
     auto handle = GetEmoteHandle();
     // 官方接口按创建顺序叠加对象。资源加载完成后创建菜单，完整背景遮住表情。
     for (int i = 0; i < Count; ++i) {
+        const bool button = i == VolumeMinus || i == VolumePlus || i == BrightnessMinus ||
+                            i == BrightnessPlus || i == Wifi || i == Back;
+        if (button && !button_backgrounds_[i]) {
+            char name[32];
+            snprintf(name, sizeof(name), "vocat_button_bg_%d", i);
+            auto bg = emote_create_obj_by_type(handle, "label", name);
+            if (!bg) {
+                ESP_LOGE("VocatMenu", "Cannot allocate button background %d", i);
+                return false;
+            }
+            button_backgrounds_[i] = bg;
+            emote_lock(handle);
+            gfx_obj_set_visible(bg, false);
+            gfx_label_set_long_mode(bg, GFX_LABEL_LONG_CLIP);
+            // 空串只显示底色；保留有效字库以满足 GFX 标签更新流程。
+            // 对象及其像素缓存只创建一次，切换页面时重复使用。
+            gfx_label_set_font(bg, const_cast<lv_font_t*>(&vocat_menu_font_20));
+            gfx_label_set_text(bg, "");
+            gfx_label_set_bg_enable(bg, true);
+            gfx_label_set_bg_color(bg, GFX_COLOR_HEX(0x244864));
+            emote_unlock(handle);
+        }
         if (items_[i])
             continue;
         char name[32];
@@ -98,9 +121,21 @@ bool VocatSettingsDisplay::EnsureObjects() {
 void VocatSettingsDisplay::Label(Item item, int x, int y, int w, int h, const std::string& text,
                                  bool button) {
     auto obj = items_[item];
+    const bool separate_background = button && button_backgrounds_[item];
+    if (separate_background) {
+        auto bg = button_backgrounds_[item];
+        gfx_obj_set_pos(bg, x, y);
+        gfx_obj_set_size(bg, w, h);
+        gfx_obj_set_visible(bg, true);
+        // GFX_TEXT_ALIGN_CENTER 只负责水平居中，文字从标签顶部按字体基线绘制。
+        // 将单行文字标签放在按钮中央；底色及 HandleTouch 的命中矩形保持一致。
+        const int text_height = std::min(h, int(vocat_menu_font_20.line_height));
+        y += (h - text_height) / 2;
+        h = text_height;
+    }
     gfx_obj_set_pos(obj, x, y);
     gfx_obj_set_size(obj, w, h);
-    gfx_label_set_bg_enable(obj, button || item == Background);
+    gfx_label_set_bg_enable(obj, (button && !separate_background) || item == Background);
     gfx_label_set_bg_color(obj, GFX_COLOR_HEX(button ? 0x244864 : 0x101B2A));
     if (text_[item] != text) {
         text_[item] = text;
@@ -138,6 +173,9 @@ void VocatSettingsDisplay::Render() {
         return;
     for (auto obj : items_)
         gfx_obj_set_visible(obj, false);
+    for (auto bg : button_backgrounds_)
+        if (bg)
+            gfx_obj_set_visible(bg, false);
     if (page_ == Page::Face) {
         emote_unlock(handle);
         return;

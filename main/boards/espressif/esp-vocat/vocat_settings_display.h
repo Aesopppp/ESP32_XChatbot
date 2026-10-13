@@ -51,6 +51,8 @@ private:
     bool saw_config_ap_ = false;
     bool leaving_config_ = false;
     std::array<gfx_obj_t*, Count> items_{};
+    // 按钮底色独立于文字，保留完整点击区域，同时允许文字垂直居中。
+    std::array<gfx_obj_t*, Count> button_backgrounds_{};
     std::array<std::string, Count> text_{};
     std::string qr_data_;
     lv_font_t* status_font_ = nullptr;

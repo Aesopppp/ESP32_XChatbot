@@ -23,7 +23,37 @@ class WifiConfigTests(unittest.TestCase):
     def test_missing_file_disables_bootstrap(self):
         result, content = self.generate(None)
         self.assertEqual(result.returncode, 0)
-        self.assertIn('#define WIFI_LOCAL_SSID ""', content)
+        self.assertIn('std::array<Network, 0>', content)
+
+    def test_multiple_networks_and_chinese_ssid(self):
+        networks = [{"ssid": "old-hotspot", "password": "testpass1"},
+                    {"ssid": "测试热点", "password": "testpass2"}]
+        result, content = self.generate({"networks": networks})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('std::array<Network, 2>', content)
+        for network in networks:
+            self.assertIn(json.dumps(network["ssid"]), content)
+            self.assertIn(json.dumps(network["password"]), content)
+        self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_network_list_limits(self):
+        for count in (0, 10):
+            result, content = self.generate({"networks": [
+                {"ssid": f"test-{i}", "password": "testpass"} for i in range(count)
+            ]})
+            self.assertEqual(result.returncode, 0)
+            self.assertIn(f'std::array<Network, {count}>', content)
+
+    def test_invalid_network_lists(self):
+        for value in ({"networks": {}}, {"networks": [None]},
+                      {"networks": [{}]}, {"networks": [{"ssid": "x", "password": "short"}]},
+                      {"networks": [{"ssid": "same"}, {"ssid": "same"}]},
+                      {"networks": [{"ssid": f"test-{i}"} for i in range(11)]},
+                      {"networks": [], "ssid": "ambiguous"}):
+            with self.subTest(value=value):
+                result, content = self.generate(value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(content, "")
 
     def test_escaping_and_no_secret_output(self):
         password = 'test-"quoted"\\value'

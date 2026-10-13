@@ -322,7 +322,6 @@ void Application::Run() {
 #if CONFIG_USE_ACOS
         // 先应用状态变更，再消费下一帧；首包不会在 speaking 初始化前丢失。
         if (protocol_ && activation_task_handle_ == nullptr) {
-            const auto now = esp_timer_get_time();
             // 本地 VAD 不能可靠区分用户讲话与残留回声；由 ACOS 的
             // speech_started 确认打断，期间持续上传 AEC 音频以保留句首。
             // 有界批量补充解码队列；状态切换仍必须先于下一帧音频。
@@ -332,20 +331,31 @@ void Application::Run() {
                 protocol_->Poll();
             }
             // 网络停止和实际播放停止是两个条件，二者同时满足才恢复等待用户输入。
-            if (acos_response_done_ && audio_service_.IsPlaybackIdle()) {
+            const bool playback_idle = audio_service_.IsPlaybackIdle();
+            if (acos_response_done_ && playback_idle) {
                 acos_response_done_ = false;
                 if (GetDeviceState() == kDeviceStateSpeaking)
                     SetListeningMode(GetDefaultListeningMode());
             }
-            if (GetDeviceState() == kDeviceStateListening && audio_service_.IsVoiceDetected()) {
-                acos_last_input_us_ = now;
+            const auto now = esp_timer_get_time();
+            const bool listening = GetDeviceState() == kDeviceStateListening;
+            // 本地 VAD 可能被噪声/残余回声持续触发，不能作为静默计时的续期依据。
+            // 每 10 秒打印确认静默时长；local_vad 只用于诊断，不改变计时。
+            if (protocol_->IsAudioChannelOpened() && listening && (bits & MAIN_EVENT_CLOCK_TICK) &&
+                clock_ticks_ % 10 == 0) {
+                ESP_LOGI(TAG,
+                         "ACOS idle: quiet=%lld/%ds local_vad=%d server_speech=%d playback_idle=%d",
+                         static_cast<long long>(acos_idle_.QuietUs(now) / 1000000),
+                         CONFIG_ACOS_IDLE_SECONDS, audio_service_.IsVoiceDetected(),
+                         acos_idle_.server_speaking, playback_idle);
             }
             // 仅在 Listening 且播放已结束时退出会话；长回答本身不会触发静默休眠。
             // CloseAudioChannel 在 ACOS 中关闭上传门，不关闭底层 WebSocket。
-            if (protocol_->IsAudioChannelOpened() && GetDeviceState() == kDeviceStateListening &&
-                audio_service_.IsPlaybackIdle() && acos_last_input_us_ > 0 &&
-                now - acos_last_input_us_ >= int64_t(CONFIG_ACOS_IDLE_SECONDS) * 1000000) {
-                ESP_LOGI(TAG, "ACOS silence timeout; waiting for local wake word");
+            if (protocol_->IsAudioChannelOpened() &&
+                acos_idle_.ShouldSleep(now, int64_t(CONFIG_ACOS_IDLE_SECONDS) * 1000000, listening,
+                                       playback_idle)) {
+                ESP_LOGI(TAG, "ACOS silence timeout (%ds); waiting for local wake word",
+                         CONFIG_ACOS_IDLE_SECONDS);
                 protocol_->CloseAudioChannel();
             }
         }
@@ -646,6 +656,10 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
+#if CONFIG_USE_ACOS
+        // ACOS 开门回调由主任务触发；新会话不能继承旧连接的说话标志。
+        acos_idle_.Start(esp_timer_get_time());
+#endif
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG,
@@ -658,6 +672,9 @@ void Application::InitializeProtocol() {
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
+#if CONFIG_USE_ACOS
+            acos_idle_ = {};
+#endif
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -683,20 +700,21 @@ void Application::InitializeProtocol() {
             return;
         } else if (strcmp(type->valuestring, "acos.speech_started") == 0) {
             // 云端确认用户开始说话：只清理旧下行音频，采集/上传维持运行。
-            // 本地 VAD 仅用于输入活动统计，不作为 ACOS 播放中的自动打断判据。
-            acos_last_input_us_ = esp_timer_get_time();
+            // 本地 VAD 不作为打断或静默续期判据；云端开始/结束成对保护长句。
             acos_response_done_ = false;
             audio_service_.ResetDecoder();
             if (GetDeviceState() == kDeviceStateSpeaking)
                 SetListeningMode(GetDefaultListeningMode());
+            acos_idle_.SpeechStarted(esp_timer_get_time());
             ESP_LOGI(
                 TAG,
                 "ACOS server speech confirmed; old playback cleared, microphone remains active");
             return;
         } else if (strcmp(type->valuestring, "acos.speech_stopped") == 0) {
-            acos_last_input_us_ = esp_timer_get_time();
+            acos_idle_.SpeechStopped(esp_timer_get_time());
             return;
         } else if (strcmp(type->valuestring, "acos.disconnected") == 0) {
+            acos_idle_.TransportLost(esp_timer_get_time());
             acos_response_done_ = false;
             audio_service_.ResetDecoder();
             if (GetDeviceState() == kDeviceStateSpeaking)
@@ -1348,10 +1366,10 @@ void Application::AbortSpeaking(AbortReason reason) {
 #endif
 }
 
-// 每次进入监听重置 ACOS 静默起点，随后由 VAD/服务端语音事件刷新活动时间。
+// 每次进入监听重置 ACOS 静默起点，随后仅由服务端确认的语音事件刷新。
 void Application::SetListeningMode(ListeningMode mode) {
 #if CONFIG_USE_ACOS
-    acos_last_input_us_ = esp_timer_get_time();
+    acos_idle_.BeginListening(esp_timer_get_time());
 #endif
     listening_mode_ = mode;
     SetDeviceState(kDeviceStateListening);

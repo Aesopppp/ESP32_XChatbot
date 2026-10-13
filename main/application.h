@@ -20,6 +20,9 @@
 #include "notify/notify_player.h"
 #include "ota.h"
 #include "protocol.h"
+#if CONFIG_USE_ACOS
+#include "acos_idle_policy.h"
+#endif
 
 // 主任务事件位：回调通过置位通知 Run，避免在网络/音频任务直接执行应用流程。
 // 事件位会合并重复通知；实际音频和待执行函数分别保存在队列中，消费时取出。
@@ -161,7 +164,9 @@ private:
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
     // ACOS 连续对话：播放结束后才切回监听，静默计时仅统计没有用户输入的时间。
-    int64_t acos_last_input_us_ = 0;  // 单调时钟微秒；与本地日期/时区无关。
+#if CONFIG_USE_ACOS
+    AcosIdlePolicy acos_idle_;
+#endif
     bool acos_response_done_ = false;  // 网络结束标志，不等于扬声器已播放完。
     TaskHandle_t activation_task_handle_ = nullptr;
 
