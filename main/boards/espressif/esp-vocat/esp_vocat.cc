@@ -1164,9 +1164,9 @@ public:
         InitializeCamera();
 #endif  // CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
 
-        // 音频服务稍后从 NVS 读取音量：每次开机设为 40，运行中仍可语音调节。
-        // 已经是 40 时不重复写 Flash。
-        constexpr int kBootVolume = 40;
+        // 音频服务稍后从 NVS 读取音量：每次开机设为 60，运行中仍可语音调节。
+        // 已经是 60 时不重复写 Flash。
+        constexpr int kBootVolume = 60;
         Settings audio_settings("audio", true);
         if (audio_settings.GetInt("output_volume", -1) != kBootVolume) {
             audio_settings.SetInt("output_volume", kBootVolume);
