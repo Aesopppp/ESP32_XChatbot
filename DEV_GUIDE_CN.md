@@ -13,6 +13,9 @@ GitHub 仓库名为 `ESP32_XChatbot`，本机目录和板型仍为 ESP-VoCat v1.
 指南按当前 VoCat/ACOS 的执行流程说明模块、线程、缓存和常用修改入口，
 可与源码中的中文注释一起阅读。
 
+2026-10-14 起，本分支只维护 ESP-VoCat，已移除其他板型和语言；详见
+[精简范围与恢复说明](docs/REPOSITORY_SCOPE_CN.md)。下方历史诊断记录不代表当前仍有对应故障。
+
 ## 开发环境
 
 - ESP-IDF 6.1：`D:\Develop_C\Espnew\v6.1\esp-idf`
@@ -65,8 +68,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev.ps1 flash-monito
 首次测试需要烧录完整项目的分区及资源，推荐上述 `idf.py flash` 路径，
 而不是只手动烧录应用程序 bin。串口监视器用 `Ctrl+]` 退出。
 
-设备上电后按照屏幕提示配网。使用默认小智云服务时，按设备提示到对应
-控制台绑定/激活，再说“你好小益”进行对话。原 ACOS token 不能用于小智云。
+设备上电后按照屏幕提示配网。当前默认使用 ACOS，鉴权成功后说“你好小益”开启对话，
+不需要小智激活码。仅在主动关闭 ACOS、切换回原小智服务时才适用小智绑定/激活流程。
 
 ## 主要代码位置
 

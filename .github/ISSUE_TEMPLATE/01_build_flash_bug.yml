@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        This form is for the open-source firmware. For device unbinding, email [xiaozhi.ai@tenclass.com](mailto:xiaozhi.ai@tenclass.com?subject=Device%20unbinding%20request) privately with the device ID and MAC address. Use the [XiaoZhi AI website](https://xiaozhi.me/) for other account and cloud-service requests.
+        This fork supports ESP-VoCat v1.2 with ACOS. See the repository support guide for configuration and service scope. Do not include private tokens or Wi-Fi passwords in reports.
 
   - type: checkboxes
     id: checklist
@@ -21,14 +21,14 @@ body:
     attributes:
       label: Board or device
       description: Enter the physical product/model and the selected board target or build variant.
-      placeholder: ex. Waveshare ESP32-S3-Touch-LCD-3.5B; target waveshare/esp32-s3-touch-lcd-3.5b
+      placeholder: ex. ESP-VoCat v1.2; target espressif/esp-vocat
     validations:
       required: true
 
   - type: input
     id: source_version
     attributes:
-      label: XiaoZhi source version
+      label: ESP32_XChatbot source version
       description: Paste the complete output of `git describe --tags --always --dirty`. Do not enter "latest".
       placeholder: ex. v2.2.6-15-g1a2b3c4
     validations:

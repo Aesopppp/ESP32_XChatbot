@@ -514,35 +514,6 @@ def _build_option_definitions(
     source = _board_source_text(board)
     definitions: list[dict[str, Any]] = []
 
-    network_choice = _kconfig_choice("XIAOZHI_NETWORK_TYPE")
-    if board_config in network_choice["board_configs"]:
-        definitions.append({
-            "key": "network_type",
-            "type": "select",
-            "default": (
-                "ethernet"
-                if assignments.get("CONFIG_XIAOZHI_NETWORK_ETHERNET") == "y"
-                else "wifi"
-            ),
-            "choices": [
-                {"value": "wifi", "label": "Wi-Fi"},
-                {"value": "ethernet", "label": "Ethernet"},
-            ],
-        })
-
-    for choice_name in ("DISPLAY_OLED_TYPE", "DISPLAY_LCD_TYPE"):
-        choice = _kconfig_choice(choice_name)
-        if board_config not in choice["board_configs"]:
-            continue
-        entries = [entry for entry in choice["entries"] if entry["value"] != "LCD_CUSTOM"]
-        definitions.append({
-            "key": "display_model",
-            "type": "select",
-            "default": _selected_choice_default(choice, assignments),
-            "choices": entries,
-        })
-        break
-
     # Message styles are implemented by the color LCD display path. OLED and
     # no-display boards deliberately do not expose a selector that has no effect.
     if re.search(r"\b[A-Za-z0-9_]*LcdDisplay\b", source):
@@ -1068,7 +1039,8 @@ def _select_variants_for_changes(
         "scripts/build_default_assets.py",
         "scripts/build.py",
         "scripts/gen_lang.py",
-        "scripts/versions.py",
+        "scripts/prepare_vocat_wake_assets.py",
+        "scripts/prepare_vocat_speaker_icon.py",
         "dependencies.lock",
     }
 
@@ -1079,7 +1051,7 @@ def _select_variants_for_changes(
         if (path in global_paths or path.startswith("components/") or
                 path.startswith("partitions/") or
                 path.startswith("sdkconfig.defaults") or
-                path.startswith("scripts/ci/") or
+                path.startswith("scripts/ci/") or path.startswith("tools/") or
                 (path.startswith("main/") and not path.startswith("main/boards/")) or
                 path.startswith("main/boards/common/")):
             common_changed = True

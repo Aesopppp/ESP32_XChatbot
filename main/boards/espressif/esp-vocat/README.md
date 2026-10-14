@@ -1,85 +1,35 @@
-# ESP-VoCat 喵伴
+# ESP-VoCat v1.2
 
-## 简介
+本目录为 ESP32_XChatbot 的目标板型实现，使用 ESP32-S3、16 MB Flash、Octal PSRAM、
+触摸圆屏和带扬声器参考回采的音频链路。硬件资料见 [乐鑫开源硬件](https://oshwhub.com/esp-college/echoear)。
+当前代码保留原有 PCB 版本检测；本工程日常验证目标为 v1.2。
 
-<div align="center">
-    <a href="https://oshwhub.com/esp-college/echoear"><b> 立创开源平台 </b></a>
-</div>
+## 默认构建
 
-ESP-VoCat 喵伴是一款智能 AI 开发套件，搭载 ESP32-S3-WROOM-1 模组，1.85 寸 QSPI 圆形触摸屏，双麦阵列，支持离线语音唤醒与声源定位算法。硬件详情等可查看[立创开源项目](https://oshwhub.com/esp-college/echoear)。
+在项目根目录且 ESP-IDF 环境已加载时执行：
 
-## 配置、编译命令
-
-**配置编译目标为 ESP32S3**
-
-```bash
-idf.py set-target esp32s3
+```sh
+python scripts/build.py espressif/esp-vocat --name esp-vocat --language zh-CN --wake-word wn9_nihaoxiaoyi_tts2
 ```
 
-**打开 menuconfig 并配置**
+本机 Windows 可以使用 `tools/dev.ps1 build`。它会重新生成 `sdkconfig`；
+已有 menuconfig 自定义设置时，用 `idf.py build` 进行增量构建。
 
-```bash
-idf.py menuconfig
-```
+默认使用表情动画界面、ACOS、你好小益唤醒模型。
+构建通过 `prepare_vocat_wake_assets.py` 和 `prepare_vocat_speaker_icon.py` 自动准备模型与声波图标，
+再打包表情资源，无需手工下载旧版 `expression_assets.bin` 或修改 `managed_components`。
+更换模型或图标后需完整烧录资源分区。
 
-分别配置如下选项：
+## 代码入口
 
-### 基本配置
-- `Xiaozhi Assistant` → `Board Type` → 选择 `Espressif ESP-VoCat`
+- `esp_vocat.cc` / `config.h`：板级初始化、引脚、音频、按键、触摸。
+- `vocat_settings_display.*` / `vocat_touch_policy.h`：上滑菜单及手势；适用于 Emote 界面。
+- `vocat_menu_font_20.c`：菜单字库；许可见同目录 `vocat_menu_font_LICENSE.txt`。
+- `wifi_ap_name.cmake`：配网热点名，当前为 `XChatbot-esp32s3`。
+- `config.json`：构建变体配置。
 
-### UI风格选择
+首次无有效音量记录时默认 50；之后开机恢复 NVS 保存值。
+上滑菜单调节音量、亮度或重新配网；BOOT 长按约 3 秒同样进入配网。
 
-ESP-VoCat 支持多种不同的 UI 显示风格，通过 menuconfig 配置选择：
-
-- `Xiaozhi Assistant` → `Select display style` → 选择显示风格
-
-#### 可选风格
-
-##### 表情动画风格 (Emote animation style) - 推荐
-- **配置选项**: `USE_EMOTE_MESSAGE_STYLE`
-- **特点**: 使用自定义的 `EmoteDisplay` 表情显示系统
-- **功能**: 支持丰富的表情动画、眼睛动画、状态图标显示
-- **适用**: 智能助手场景，提供更生动的人机交互体验
-- **类**: `emote::EmoteDisplay`
-
-**⚠️ 重要**: 选择此风格需要额外配置自定义资源文件：
-1. `Xiaozhi Assistant` → `Flash Assets` → 选择 `Flash Custom Assets`
-2. `Xiaozhi Assistant` → `Custom Assets File` → 填入资源文件地址：
-   ```
-   https://dl.espressif.com/AE/wn9_nihaoxiaozhi_tts-font_puhui_common_20_4-echoear.bin
-   ```
-
-   这是保留表情动画和模型的历史资源包；新版固件会忽略其中没有 Noto 元数据的旧 Puhui
-   字体，并使用内置 Noto basic 字体。待新的 Noto 资源包上传后可直接替换此 URL。
-
-##### 默认消息风格 (Enable default message style)
-- **配置选项**: `USE_DEFAULT_MESSAGE_STYLE` (默认)
-- **特点**: 使用标准的消息显示界面
-- **功能**: 传统的文本和图标显示界面
-- **适用**: 标准的对话场景
-- **类**: `SpiLcdDisplay`
-
-##### 微信消息风格 (Enable WeChat Message Style)
-- **配置选项**: `USE_WECHAT_MESSAGE_STYLE`
-- **特点**: 仿微信聊天界面风格
-- **功能**: 类似微信的消息气泡显示
-- **适用**: 喜欢微信风格的用户
-- **类**: `SpiLcdDisplay`
-
-> **说明**: ESP-VoCat 喵伴使用16MB Flash，需要使用专门的分区表配置来合理分配存储空间给应用程序、OTA更新、资源文件等。
-
-按 `S` 保存，按 `Q` 退出。
-
-**编译**
-
-```bash
-idf.py build
-```
-
-**烧录**
-
-将 ESP-VoCat 喵伴连接至电脑，**注意打开电源**，并运行：
-
-```bash
-idf.py flash
-```
+使用与维护说明见 [项目首页](../../../../README.md)、[ACOS 指南](../../../../ACOS_GUIDE_CN.md)
+和 [VoCat 设置说明](../../../../docs/VOCAT_SETTINGS_CN.md)。

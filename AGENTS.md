@@ -2,7 +2,7 @@
 
 ## Project
 
-XiaoZhi is an ESP-IDF C/C++ voice-assistant firmware supporting many chips, boards, displays, audio devices, and network transports. A build selects exactly one board implementation.
+ESP32_XChatbot is an ESP-IDF C/C++ voice-assistant firmware derived from XiaoZhi, focused on ESP-VoCat v1.2 (ESP32-S3) and ACOS. This checkout includes only the VoCat board and zh-CN/en-US locales. Shared modules remain; a build selects exactly one board implementation. See docs/REPOSITORY_SCOPE_CN.md for the cleanup boundary and recovery tag.
 
 Use ESP-IDF v6.1 when possible. The minimum supported SDK is ESP-IDF v6.0.1. IDF 5.x is not supported.
 
@@ -11,7 +11,7 @@ Use ESP-IDF v6.1 when possible. The minimum supported SDK is ESP-IDF v6.0.1. IDF
 - `main/application.*`: main event loop, protocol lifecycle, and high-level behavior.
 - `main/device_state_machine.*`: legal runtime state transitions.
 - `main/boards/common/`: board interfaces and reusable hardware/network helpers.
-- `main/boards/**/`: board-specific pins, initialization, and build variants.
+- `main/boards/espressif/esp-vocat/`: board-specific pins, initialization, settings UI, and build variant.
 - `main/audio/`: codecs, audio tasks, engines, wake words, and queues.
 - `main/protocols/`: transport-neutral API plus WebSocket and MQTT/UDP.
 - `main/display/` and `main/led/`: reusable UI implementations.
@@ -60,10 +60,11 @@ idf.py --version
 python3 scripts/build.py --list-boards
 
 # Canonical variant build
-python3 scripts/build.py <board-directory> --name <variant-name>
+python3 scripts/build.py espressif/esp-vocat --name esp-vocat --language zh-CN --wake-word wn9_nihaoxiaoyi_tts2
 
 # Host-side build tests
-python3 -m unittest discover -s scripts/tests -v
+python3 tools/run_host_tests.py
+python3 -m unittest discover -s tools -p 'test_*.py' -v
 
 # Format/check touched files
 clang-format -i <files>
@@ -75,7 +76,7 @@ The build script changes local `sdkconfig` and build state. Do not assume the bu
 ## Validation
 
 - Board-only change: build affected variants and smoke-test changed hardware.
-- Core, common-board, audio, protocol, display, dependency, Kconfig, or CMake change: run host tests and build representative affected chip/network paths.
+- Core, common-board, audio, protocol, display, dependency, Kconfig, or CMake change: run host tests and build the supported VoCat variant. Validate optional configurations if the change affects them.
 - Protocol changes: verify WebSocket and MQTT/UDP when shared behavior changes.
 - Audio changes: verify capture, playback, wake/VAD, interruption, reconnect, and applicable AEC modes.
 - UI/assets changes: verify applicable no-display/OLED/LVGL paths and partition size.
@@ -88,6 +89,6 @@ The build script changes local `sdkconfig` and build state. Do not assume the bu
 - Audio design: `main/audio/README.md`
 - Code style: `docs/code_style.md`
 - Protocols: `docs/websocket.md`, `docs/mqtt-udp.md`, `docs/mcp-protocol.md`
-- CI matrix: `.github/workflows/build.yml`
+- VoCat CI build: `.github/workflows/build.yml`
 
 Keep detailed or fast-changing information in those files, not here. Add a nested `AGENTS.md` only when a subsystem needs specialized instructions.

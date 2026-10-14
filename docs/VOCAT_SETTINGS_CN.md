@@ -1,6 +1,6 @@
 # ESP-VoCat v1.2 触屏设置与重新配网
 
-工程：`D:\ESP32_XChatbot_v1.2`。开发分支：`feature/vocat-settings-wifi`。
+工程：`D:\ESP32_XChatbot_v1.2`。当前分支：`dev/esp-vocat-v1.2`。
 适用固件：VoCat 的 Emote 表情界面版本。日期：2026-10-13。
 
 ## 使用方法

@@ -1,6 +1,6 @@
 # Custom Board Guide
 
-This guide describes how to add a new board to the XiaoZhi AI voice assistant project. XiaoZhi AI supports 70+ ESP32-series boards; each one lives in its own directory under `main/boards/`.
+This is an upstream architecture reference for adding board support. This fork currently includes only ESP-VoCat; examples for other chips and boards below are not supported build targets in this checkout. Restoring another board also requires its Kconfig, CMake, chip defaults, partitions and dependencies. See [repository scope](REPOSITORY_SCOPE_CN.md).
 
 ## Important
 

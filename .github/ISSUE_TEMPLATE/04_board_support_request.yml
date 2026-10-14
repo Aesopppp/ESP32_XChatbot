@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Similar-looking products may use different pins and components. Please identify the exact hardware rather than only naming the closest supported board.
+        This product branch currently supports only ESP-VoCat. Describe hardware-revision issues precisely; other-board requests require a separate port and are outside the current supported scope.
 
   - type: checkboxes
     id: checklist
