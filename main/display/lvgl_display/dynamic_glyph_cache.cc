@@ -1,3 +1,9 @@
+/*
+ * 动态字形缓存：把远端下发的 Unicode 位图组织为 LVGL 备用字体。
+ * 最多保留 256 个字形和 64 KiB 位图，超限时淘汰最早更新的条目。
+ * 有 PSRAM 时允许跨批次保留；无 PSRAM 时减少长期占用，避免挤占网络和音频的内部 SRAM。
+ */
+
 #include "dynamic_glyph_cache.h"
 
 #include <esp_log.h>
@@ -8,6 +14,7 @@
 
 DynamicGlyphCache::DynamicGlyphCache() : retain_between_batches_(TextGlyphStorageUsesPsram()) {}
 
+// 依据基础字体和像素位深建立 fallback；位深改变时先清除不兼容的旧位图。
 lv_font_t* DynamicGlyphCache::EnsureFont(const lv_font_t* base_font, uint8_t bpp) {
     if (base_font == nullptr || (bpp != 1 && bpp != 4)) {
         return nullptr;
@@ -47,6 +54,8 @@ size_t DynamicGlyphCache::BitmapBytes() const {
     return total;
 }
 
+// 校验码点与位图长度，按码点去重更新，再执行数量和总字节数限制。
+// last_use 记录插入 / 更新顺序，此处淘汰的是最早更新项，而非实际绘制访问的 LRU。
 bool DynamicGlyphCache::AddGlyphs(const std::vector<TextGlyph>& glyphs) {
     if (!initialized_ || glyphs.empty()) {
         return false;
@@ -103,6 +112,7 @@ bool DynamicGlyphCache::AddGlyphs(const std::vector<TextGlyph>& glyphs) {
     return changed;
 }
 
+// 清空缓存；内部 SRAM 模式额外释放 vector 容量，PSRAM 模式保留容量便于下一批复用。
 void DynamicGlyphCache::Clear() {
     if (retain_between_batches_) {
         entries_.clear();
@@ -117,6 +127,8 @@ void DynamicGlyphCache::Clear() {
     Rebuild();
 }
 
+// 按 Unicode 排序，将位图和字形描述拼接成 LVGL sparse cmap。
+// 向量重新分配后必须重新绑定原始指针，索引 0 留作 LVGL 的未命中字形。
 void DynamicGlyphCache::Rebuild() {
     std::sort(entries_.begin(), entries_.end(),
               [](const Entry& a, const Entry& b) { return a.codepoint < b.codepoint; });

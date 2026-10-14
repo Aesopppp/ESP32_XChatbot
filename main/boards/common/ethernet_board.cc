@@ -1,3 +1,8 @@
+/*
+ * 有线以太网板级网络基础，统一链路 / 获取 IP 事件与网络接口。
+ * 属于保留的扩展实现；当前 VoCat 默认使用 Wi-Fi，不会因文件存在就启动以太网硬件。
+ */
+
 #include "ethernet_board.h"
 
 #include "audio_codec.h"
@@ -25,6 +30,7 @@
 
 static const char* TAG = "EthernetBoard";
 
+// 按构建选项创建对应 PHY；只有接线、时钟和芯片型号都匹配才可正常建立链路。
 static esp_eth_phy_t* CreatePhy(const eth_phy_config_t& phy_config) {
 #if CONFIG_XIAOZHI_ETH_PHY_IP101
     return esp_eth_phy_new_ip101(&phy_config);
@@ -64,6 +70,7 @@ void EthernetBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
     network_event_callback_ = std::move(callback);
 }
 
+// 创建独立网络初始化任务，让耗时驱动准备过程不占住应用启动线程。
 void EthernetBoard::StartNetwork() {
     xTaskCreate(NetworkTaskEntry, "eth_net", 4096, this, 5, nullptr);
 }
@@ -74,6 +81,7 @@ void EthernetBoard::NetworkTaskEntry(void* arg) {
     vTaskDelete(nullptr);
 }
 
+// 依次准备 netif、MAC / PHY 和事件注册，再启动以太网；获得 IP 后才可使用网络。
 void EthernetBoard::NetworkTask() {
     OnNetworkEvent(NetworkEvent::Connecting, "Ethernet");
 
@@ -153,6 +161,7 @@ void EthernetBoard::NetworkTask() {
     }
 }
 
+// 物理链路事件处理；link up 只说明网线已连通，尚不等于 DHCP 完成。
 void EthernetBoard::EthEventHandler(void* arg, const char* event_base, int32_t event_id,
                                     void* event_data) {
     auto* board = static_cast<EthernetBoard*>(arg);
@@ -185,6 +194,7 @@ void EthernetBoard::EthEventHandler(void* arg, const char* event_base, int32_t e
     }
 }
 
+// 记录分配的 IP 后发布 Connected，应用据此启动网络服务。
 void EthernetBoard::GotIpEventHandler(void* arg, const char* event_base, int32_t event_id,
                                       void* event_data) {
     auto* board = static_cast<EthernetBoard*>(arg);

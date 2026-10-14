@@ -1,3 +1,9 @@
+/*
+ * JPEG 解码适配：将压缩图片转换为可显示的 RGB565 像素。
+ * 支持的软件解码用于 ESP32-S3；硬件路径受 Kconfig 控制，失败后回退到软件解码。
+ * 成功返回的缓冲区由调用方释放；stride 是每行字节数，硬件块对齐时可能大于 width×2。
+ */
+
 #include <esp_check.h>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
@@ -20,6 +26,7 @@
 
 #define TAG "jpeg_to_image"
 
+// 软件路径解析 JPEG 头后分配对齐的 RGB565 缓冲，解码失败统一清理临时资源。
 static esp_err_t decode_with_new_jpeg(const uint8_t* src, size_t src_len, uint8_t** out, size_t* out_len, size_t* width,
                                       size_t* height, size_t* stride) {
     ESP_LOGD(TAG, "Decoding JPEG with software decoder");
@@ -100,6 +107,8 @@ jpeg_dec_failed:
 }
 
 #ifdef CONFIG_XIAOZHI_ENABLE_HARDWARE_JPEG_DECODER
+// 硬件路径单独分配输入 / 输出缓冲，YUV 采样块可能要求宽高按 16 对齐。
+// 对外仍返回原图宽高，调用方必须使用返回的 stride 读取每行。
 static esp_err_t decode_with_hardware_jpeg(const uint8_t* src, size_t src_len, uint8_t** out, size_t* out_len,
                                            size_t* width, size_t* height, size_t* stride) {
     ESP_LOGD(TAG, "Decoding JPEG with hardware decoder");
@@ -242,6 +251,7 @@ jpeg_hw_dec_failed:
 }
 #endif  // CONFIG_XIAOZHI_ENABLE_HARDWARE_JPEG_DECODER
 
+// 检查必需参数后选择可用解码器；硬件失败回退软件，成功后把输出所有权交给调用方。
 esp_err_t jpeg_to_image(const uint8_t* src, size_t src_len, uint8_t** out, size_t* out_len, size_t* width,
                         size_t* height, size_t* stride) {
 #ifdef CONFIG_XIAOZHI_ENABLE_CAMERA_DEBUG_MODE

@@ -1,3 +1,9 @@
+/*
+ * MultiNet 自定义命令词检测器，可作为本地唤醒的一种可选软件实现。
+ * 需要对应语言模型和命令表；当前 VoCat 固定的“你好小益”WakeNet 模型并不由本文件改名生成。
+ * 支持交错原始 PCM 或单声道处理结果；可选回溯音频使用 PSRAM 缓存再单独编码。
+ */
+
 #ifndef CUSTOM_WAKE_WORD_H
 #define CUSTOM_WAKE_WORD_H
 
@@ -37,6 +43,7 @@ public:
     const std::string& GetLastDetectedWakeWord() const { return last_detected_wake_word_; }
 
 private:
+    // command 是模型识别串，text 是展示文字，action="wake" 才触发唤醒回调。
     struct Command {
         std::string command;
         std::string text;
@@ -59,6 +66,7 @@ private:
     std::string last_detected_wake_word_;
     std::atomic<bool> running_ = false;
     std::vector<int16_t> input_buffer_;
+    // 保护检测拼块与 Stop 清理；回调在检测调用线程执行，不自动切换到应用主任务。
     std::mutex input_buffer_mutex_;
 
     TaskHandle_t wake_word_encode_task_ = nullptr;
@@ -67,6 +75,7 @@ private:
     WakeWordAudioCache wake_word_audio_cache_;
     std::deque<std::vector<uint8_t>> wake_word_opus_;
     std::mutex wake_word_mutex_;
+    // 编码任务通知消费方，空 Opus 包是本轮结束标记。
     std::condition_variable wake_word_cv_;
 
     void FeedSamples(const int16_t* data, size_t samples, bool mono);

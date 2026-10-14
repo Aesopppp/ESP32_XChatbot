@@ -1,3 +1,9 @@
+/*
+ * Wi-Fi 板级网络基础：连接已保存热点、上报事件、失败时进入配网。
+ * 手机配网页面由 Wi-Fi 配网组件提供，板级代码负责选择热点名和进入 / 退出配网。
+ * Wi-Fi 建链与云端 WebSocket 是两层独立流程，连上热点并不表示 ACOS 已完成认证。
+ */
+
 #ifndef WIFI_BOARD_H
 #define WIFI_BOARD_H
 

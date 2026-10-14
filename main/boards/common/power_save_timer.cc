@@ -1,3 +1,9 @@
+/*
+ * 通用低功耗倒计时：检查空闲后请求省电或关机。
+ * 此计时器可关闭采集 / 唤醒并调整 CPU 频率，与 ACOS 的 60 秒对话待机策略不同。
+ * 阈值 -1 表示禁用相应阶段，是否实际采用本模块取决于板级代码。
+ */
+
 #include "power_save_timer.h"
 #include "application.h"
 #include "settings.h"
@@ -27,6 +33,7 @@ PowerSaveTimer::~PowerSaveTimer() {
     esp_timer_delete(power_save_timer_);
 }
 
+// 启用前读取 wifi/sleep_mode；停用时结束定时并恢复当前的省电状态。
 void PowerSaveTimer::SetEnabled(bool enabled) {
     if (enabled && !enabled_) {
         Settings settings("wifi", false);
@@ -59,6 +66,8 @@ void PowerSaveTimer::OnShutdownRequest(std::function<void()> callback) {
     on_shutdown_request_ = callback;
 }
 
+// 每秒检查应用是否允许省电，忙碌时重新计时。
+// 若配置降频，则暂停唤醒与音频输入；关机通过板级注册回调实现。
 void PowerSaveTimer::PowerSaveCheck() {
     auto& app = Application::GetInstance();
     if (!in_sleep_mode_ && !app.CanEnterSleepMode()) {
@@ -103,6 +112,7 @@ void PowerSaveTimer::PowerSaveCheck() {
     }
 }
 
+// 清空空闲累计，恢复运行频率及之前开启的唤醒检测，再通知板级退出省电。
 void PowerSaveTimer::WakeUp() {
     ticks_ = 0;
     if (in_sleep_mode_) {

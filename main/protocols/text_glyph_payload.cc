@@ -1,3 +1,8 @@
+/*
+ * 远端动态字形的校验入口：检查协议版本、字体能力、尺寸与 Base64 位图。
+ * JSON 只在解析期间借用，成功后以自有 bitmap 数据交给显示缓存；不把网络裸指针保存到 LVGL。
+ */
+
 #include "text_glyph_payload.h"
 #include "assets.h"
 
@@ -11,6 +16,7 @@
 
 namespace TextGlyphPayload {
 
+// 缺少 glyph_push 对象表示本消息没有字形更新，返回 true；不兼容或格式错误返回 false。
 bool Parse(const cJSON* root, std::vector<TextGlyph>& result, uint8_t& bpp) {
     auto payload = cJSON_GetObjectItem(root, "glyph_push");
     if (!cJSON_IsObject(payload)) {
@@ -31,6 +37,7 @@ bool Parse(const cJSON* root, std::vector<TextGlyph>& result, uint8_t& bpp) {
         return false;
     }
 
+    // 先构建临时结果，全部校验通过后才提交，失败不把半批字形写入显示缓存。
     const uint8_t parsed_bpp = static_cast<uint8_t>(wire_bpp->valueint);
     std::vector<TextGlyph> parsed;
     parsed.reserve(cJSON_GetArraySize(glyphs));
@@ -55,6 +62,7 @@ bool Parse(const cJSON* root, std::vector<TextGlyph>& result, uint8_t& bpp) {
             return false;
         }
 
+        // 按位深计算最小位图字节数，并限制本批总量不超过 64 KiB。
         const size_t expected =
             (static_cast<size_t>(box_w->valueint) * box_h->valueint * parsed_bpp + 7) / 8;
         total_bitmap_bytes += expected;
@@ -84,6 +92,7 @@ bool Parse(const cJSON* root, std::vector<TextGlyph>& result, uint8_t& bpp) {
             continue;
         }
         size_t decoded = 0;
+        // 解码实际长度必须与字形尺寸计算值完全一致，避免缓存读越界或错误字体布局。
         int rc = mbedtls_base64_decode(glyph.bitmap.data(), glyph.bitmap.size(), &decoded,
                                        reinterpret_cast<const unsigned char*>(bitmap->valuestring),
                                        encoded_length);

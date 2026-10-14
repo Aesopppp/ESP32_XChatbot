@@ -1,3 +1,8 @@
+/*
+ * 可选音频调试输出：把 PCM 数据以 UDP 发往配置的主机。
+ * 只在音频调试配置启用时创建套接字；这条输出不是 ACOS 的 WebSocket 音频协议。
+ */
+
 #ifndef AUDIO_DEBUGGER_H
 #define AUDIO_DEBUGGER_H
 

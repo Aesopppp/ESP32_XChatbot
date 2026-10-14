@@ -1,3 +1,9 @@
+/*
+ * 物理按键包装：把 iot_button 的 GPIO / ADC 事件转换为 C++ 回调。
+ * 模块处理按下、松开、单击、长按和多击；业务动作由板级注册的回调决定。
+ * 回调由按键组件调用，不能假定处于应用主任务；修改对话状态时应通过 Application 调度。
+ */
+
 #ifndef BUTTON_H_
 #define BUTTON_H_
 

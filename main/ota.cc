@@ -1,3 +1,9 @@
+/*
+ * 固件 OTA 与设备激活接口：查询版本、接收服务配置、下载新固件并确认启动成功。
+ * 这是通用平台路径；ACOS 是否跳过激活 / 版本查询由 Application 的启动分支决定。
+ * 升级写入 OTA 应用分区，与 Assets 的模型、字体、表情资源下载分别管理。
+ */
+
 #include "ota.h"
 #include "system_info.h"
 #include "settings.h"

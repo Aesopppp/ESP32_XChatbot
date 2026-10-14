@@ -1,3 +1,9 @@
+/*
+ * GIF 与 LVGL 的连接层：管理解码画布、帧定时器和循环播放。
+ * gifdec.c / gifdec.h / gifdec_mve.h 是底层第三方解码器，保留原实现；本包装负责生命周期。
+ * LVGL 图像描述直接指向解码画布，关闭解码器前必须停止定时器并解除界面引用。
+ */
+
 #include "lvgl_gif.h"
 #include <esp_log.h>
 #include <cstring>
@@ -52,6 +58,7 @@ const lv_img_dsc_t* LvglGif::image_dsc() const {
 }
 
 // Animation control methods
+// 首次启动时建立 LVGL 定时器，后续复用定时器并推进首帧。
 void LvglGif::Start() {
     if (!loaded_ || !gif_) {
         ESP_LOGW(TAG, "GIF not loaded, cannot start");
@@ -100,6 +107,7 @@ void LvglGif::Resume() {
     }
 }
 
+// 暂停定时器并回到 GIF 起始位置；仍保留解码资源，便于再次启动。
 void LvglGif::Stop() {
     if (timer_) {
         playing_ = false;
@@ -169,6 +177,8 @@ void LvglGif::SetFrameCallback(std::function<void()> callback) {
     frame_callback_ = callback;
 }
 
+// 按 GIF 帧延时推进解码，延时单位为 10 毫秒；循环间隔另行等待。
+// 渲染完成后通知界面刷新，播放器和绑定它的控件应在 LVGL 同步范围内操作。
 void LvglGif::NextFrame() {
     if (!loaded_ || !gif_ || !playing_) {
         return;
@@ -231,6 +241,7 @@ void LvglGif::NextFrame() {
     }
 }
 
+// 先删除定时器，后关闭解码器并清零描述，避免异步帧回调读取已释放的画布。
 void LvglGif::Cleanup() {
     // Stop and delete timer
     if (timer_) {

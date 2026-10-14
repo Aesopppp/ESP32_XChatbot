@@ -1,3 +1,9 @@
+/*
+ * 可选的 BLE Blufi 配网实现，负责蓝牙会话、Wi-Fi 扫描和配置交换。
+ * 支持的蓝牙协议栈由 Kconfig 选择；不是通过设备 AP 打开的网页配网界面。
+ * 安全上下文管理密钥协商、AES 和校验，停止配网时需释放相应协议栈 / 加密资源。
+ */
+
 #pragma once
 
 #include <cassert>
@@ -26,6 +32,7 @@ public:
      * - Otherwise, it performs a dedicated scan without interfering with normal WiFi operations
      * @return true if a scan was started (or was already in progress); false on failure.
      */
+    // 配网模式下复用 AP 扫描缓存，否则独立扫描；true 表示已发起或已有扫描，不代表已返回列表。
     bool start_wifi_scan();
 
     /**
@@ -33,12 +40,14 @@ public:
      * This is the main entry point to start the Blufi process.
      * @return ESP_OK on success, otherwise an error code.
      */
+    // 启动蓝牙控制器、所选协议栈与 Blufi profile；调用方应检查 ESP_OK。
     esp_err_t init();
 
     /**
      * @brief Deinitializes Blufi and the Bluetooth stack.
      * @return ESP_OK on success, otherwise an error code.
      */
+    // 按所选协议栈停止 host / controller；安全上下文释放由相应事件与析构路径处理。
     esp_err_t deinit();
 
     // Delete copy constructor and assignment operator for singleton
@@ -110,6 +119,7 @@ private:
 #endif
 
     // Security context, formerly blufi_sec struct
+    // 本次蓝牙会话的协商数据、PSA AES 密钥与操作上下文，不是 ACOS token。
     struct BlufiSecurity {
 #define DH_PARAM_LEN_MAX 1024
 #define DH_SELF_PUB_KEY_LEN 384
@@ -147,10 +157,12 @@ private:
     // When true, scan results are stored in m_ap_records on scan completion.
     // Cleared during connect-to-AP so that the connect-time scan does not
     // overwrite the cache with results gathered for connection purposes.
+    // 配网列表扫描才更新缓存，连接 AP 所触发的扫描不覆盖用户请求的列表。
     bool m_scan_should_save_ssid = true;
     // When true, the next scan-done event responds to a pending GET_WIFI_LIST
     // request from the App. Set by the GET_WIFI_LIST handler when no cache is
     // available or a scan is already in flight; cleared by the scan-done
     // handler after dispatching the response.
+    // 记录待回应的手机列表请求；扫描完成回调发送后清除，避免没有缓存时提前返回空列表。
     bool m_send_list_after_scan = false;
 };

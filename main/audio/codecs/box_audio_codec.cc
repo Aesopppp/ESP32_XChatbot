@@ -1,3 +1,9 @@
+/*
+ * ES8311 输出 + ES7210 输入的双器件音频适配，当前 VoCat 使用此组合。
+ * I2C 配置器件，I2S 搬运 PCM；输入回采标志 / 通道映射必须与板级接线和 AFE 格式一致。
+ * 输入 / 输出共用数据接口，开关时需要互斥保护，不能在播放时随意关闭麦克风。
+ */
+
 #include "box_audio_codec.h"
 
 #include <esp_log.h>
@@ -99,6 +105,7 @@ BoxAudioCodec::~BoxAudioCodec() {
 
 // 全双工 RX/TX 共享时钟；输出为 16 位标准立体声，输入按四槽 TDM 接收。
 // 必须使用板型配置的引脚和采样率，不能直接照搬另一开发板的 I2S 配置。
+// 在同一 I2S 控制器建立输入 / 输出通道并配置共享时钟，保证采集和播放可并行。
 void BoxAudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
     assert(input_sample_rate_ == output_sample_rate_);
 
@@ -190,6 +197,7 @@ void BoxAudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_
 }
 
 // 先设置实际 DAC 音量，再调用基类保存 NVS；VoCat 下次启动时恢复上次保存的音量。
+// 先保存通用音量偏好，再应用到 ES8311；音量不是网络编码的增益。
 void BoxAudioCodec::SetOutputVolume(int volume) {
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(output_dev_, volume));
     AudioCodec::SetOutputVolume(volume);
@@ -197,6 +205,7 @@ void BoxAudioCodec::SetOutputVolume(int volume) {
 
 // 通道掩码选择逻辑麦克风及回采；ES7210 物理 MIC 编号与 TDM 槽序不同。
 // 麦克风增益和回采增益应分别配置，回采过弱或失真都会影响回声消除。
+// 在共享数据接口锁内开关 ADC 和输入通道，并按配置分别设置麦克风与回采增益。
 void BoxAudioCodec::EnableInput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (enable == input_enabled_) {
@@ -229,6 +238,7 @@ void BoxAudioCodec::EnableInput(bool enable) {
     AudioCodec::EnableInput(enable);
 }
 
+// 在共享数据接口锁内开关 DAC / 输出设备；播放开关不应改变输入通道的采集需求。
 void BoxAudioCodec::EnableOutput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (enable == output_enabled_) {
@@ -251,6 +261,7 @@ void BoxAudioCodec::EnableOutput(bool enable) {
     AudioCodec::EnableOutput(enable);
 }
 
+// 从 codec 输入取得交错 PCM，samples 按 int16_t 元素计数，转换为字节数传给驱动。
 int BoxAudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, (void*)dest, samples * sizeof(int16_t)));
@@ -258,6 +269,7 @@ int BoxAudioCodec::Read(int16_t* dest, int samples) {
     return samples;
 }
 
+// 将解码后的 PCM 送入 codec 输出，由 I2S、DAC 与功放完成实际发声。
 int BoxAudioCodec::Write(const int16_t* data, int samples) {
     if (output_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_write(output_dev_, (void*)data, samples * sizeof(int16_t)));

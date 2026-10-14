@@ -1,3 +1,9 @@
+/*
+ * 电子纸备用显示驱动：把 LVGL 的 RGB565 刷新区域转换为单色帧缓冲。
+ * 通过 SPI 命令和波形表完成全刷 / 局刷；当前 VoCat 的彩色 LCD 不走这条路径。
+ * BUSY 等待是阻塞操作，不能把此路径用于要求音频实时响应的回调。
+ */
+
 #include <stdio.h>
 #include <esp_lcd_panel_io.h>
 #include <freertos/FreeRTOS.h>
@@ -13,6 +19,7 @@
 
 #define BYTES_PER_PIXEL (LV_COLOR_FORMAT_GET_SIZE(LV_COLOR_FORMAT_RGB565))
 
+// 将 LVGL 刷新区域逐像素阈值化写入单色缓冲，再通知 LVGL 此次刷新完成。
 void EpdDisplay::lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p) {
     assert(disp != NULL);
     EpdDisplay *driver = (EpdDisplay *) lv_display_get_user_data(disp);
@@ -53,6 +60,7 @@ EpdDisplay::EpdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     Width(width), Height(height) {
 }
 
+// 配置 SPI / GPIO、LVGL 缓冲与面板波形，并建立逻辑方向旋转后的显示对象。
 void EpdDisplay::Initialize() {
     assert(buffer == nullptr); // Initialization is a one-shot operation.
 
@@ -150,6 +158,7 @@ void EpdDisplay::spi_port_init() {
     ESP_ERROR_CHECK(ret);
 }
 
+// BUSY 高电平表示刷新未完成，每 5 毫秒让出 CPU；当前实现没有超时退出。
 void EpdDisplay::read_busy() {
     int busy = lcd_spi_data.busy;
     while (gpio_get_level((gpio_num_t) busy) == 1) {
@@ -215,6 +224,7 @@ void EpdDisplay::EPD_SetCursor(uint16_t Xstart, uint16_t Ystart) {
     EPD_SendData((Ystart >> 8) & 0xFF);
 }
 
+// 向控制器写入型号对应的电压波形表，决定全刷或局刷的刷新方式。
 void EpdDisplay::EPD_SetLut(Waveform lut) {
     assert(lut.data != nullptr && lut.size > 0);
     EPD_SendCommand(0x32);
@@ -295,6 +305,7 @@ void EpdDisplay::EPD_DisplayPartBaseImage() {
     EPD_TurnOnDisplay();
 }
 
+// 先初始化基础状态，再切换局刷波形和边框参数。
 void EpdDisplay::EPD_Init_Partial() {
     EPD_Init();
     EPD_SetLut(GetPartialWaveform());
@@ -315,6 +326,7 @@ void EpdDisplay::EPD_DisplayPart() {
     EPD_TurnOnDisplayPart();
 }
 
+// 把旋转后的逻辑坐标映射到物理面板；每字节保存 8 个像素，从高位依次排列。
 void EpdDisplay::EPD_DrawColorPixel(uint16_t x, uint16_t y, uint8_t color) {
     if (x >= Height || y >= Width) {
         ESP_LOGE("EPD", "Out of bounds pixel: (%d,%d)", x, y);

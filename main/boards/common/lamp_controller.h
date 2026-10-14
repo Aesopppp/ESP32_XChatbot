@@ -1,3 +1,9 @@
+/*
+ * 可选 GPIO 灯具的 MCP 工具封装。
+ * 注册查询 / 开灯 / 关灯工具并直接控制 GPIO；不是语音助手状态指示灯。
+ * 工具回调捕获 this，控制器对象必须在工具可调用期间持续存活。
+ */
+
 #ifndef __LAMP_CONTROLLER_H__
 #define __LAMP_CONTROLLER_H__
 

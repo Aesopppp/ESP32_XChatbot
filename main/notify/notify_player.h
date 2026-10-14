@@ -20,6 +20,7 @@ struct NotifySubtitle {
 // 云端主动通知的流式播放器：HTTP 获取 Ogg/Opus，复用 AudioService 解码播放。
 // 不是本地定时任务，也不内置文本转语音；audio_url 必须指向可解码音频。
 // playback_id 隔离取消后的旧回调；字幕按实际提交播放的媒体位置推进。
+// 独立的通知音频下载与播放入口，不等同于 ACOS 回答的 WebSocket 二进制流。
 class NotifyPlayer {
 public:
     using SubtitleCallback = std::function<void(uint32_t playback_id, const std::string& text)>;

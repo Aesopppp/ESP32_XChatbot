@@ -1,3 +1,9 @@
+/*
+ * esp_video / V4L2 摄像头适配，管理视频设备、mmap 帧和 JPEG 编码。
+ * 与 Esp32Camera 属于不同采集后端；是否编译取决于芯片与摄像头组件配置。
+ * 采集帧、映射缓冲和编码线程的寿命需分别管理，不能把映射地址当普通堆内存释放。
+ */
+
 #include "sdkconfig.h"
 
 #include <esp_heap_caps.h>
@@ -388,6 +394,7 @@ EspVideo::EspVideo(const esp_video_init_config_t& config) {
 #endif  // CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE
 }
 
+// 停止流、逐个解除 V4L2 mmap，再关闭设备；映射区不使用普通 free。
 EspVideo::~EspVideo() {
     if (streaming_on_ && video_fd_ >= 0) {
         int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -411,6 +418,7 @@ void EspVideo::SetExplainUrl(const std::string& url, const std::string& token) {
     explain_token_ = token;
 }
 
+// 出队摄像头帧并取得副本，随后把驱动缓冲重新排入采集队列，保持后续采集。
 bool EspVideo::Capture() {
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
@@ -942,6 +950,7 @@ bool EspVideo::SetVFlip(bool enabled) {
  * @note 函数会等待之前的编码线程完成后再开始新的处理
  * @warning 如果摄像头缓冲区为空或网络连接失败，将返回错误信息
  */
+// 编码当前画面并提交图像解释问题；不同像素格式选择对应转换 / JPEG 路径。
 std::expected<std::string, std::string> EspVideo::Explain(const std::string& question) {
     if (explain_url_.empty()) {
         return std::unexpected("Image explain URL or token is not set");

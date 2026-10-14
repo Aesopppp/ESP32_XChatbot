@@ -29,10 +29,12 @@ public:
     virtual bool IsWakeWordDetectionEnabled() const = 0;
     virtual bool IsVoiceProcessingEnabled() const = 0;
     virtual bool IsAfeWakeWord() const = 0;
+    // 返回处理器需要的每通道采样点数，采集层据此按实际输入通道数准备交错 PCM。
     virtual size_t GetFeedSize() const = 0;
 
     virtual void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback) = 0;
     virtual void OnOutput(std::function<void(std::vector<int16_t>&& data)> callback) = 0;
+    // speaking 表示本地语音活动；残余回声也可能触发，不能单凭它就取消 ACOS 回答。
     virtual void OnVadStateChange(std::function<void(bool speaking)> callback) = 0;
 
     virtual void EncodeWakeWordData() = 0;

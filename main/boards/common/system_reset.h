@@ -1,3 +1,8 @@
+/*
+ * 物理按键触发的 NVS 清除、OTA 启动记录清除及延时重启工具。
+ * 这些接口会丢失持久化设置，属于显式恢复操作，不能拿来处理普通 Wi-Fi 重连。
+ */
+
 #ifndef _SYSTEM_RESET_H
 #define _SYSTEM_RESET_H
 

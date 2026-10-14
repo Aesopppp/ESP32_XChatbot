@@ -1,3 +1,8 @@
+/*
+ * 系统诊断接口：芯片、Flash、堆、任务负载和电源锁信息。
+ * 这些数据用于状态展示与排障；堆的历史最低值不等于当前空闲值，Flash 总量不等于可用应用分区。
+ */
+
 #include "system_info.h"
 
 #include <freertos/task.h>

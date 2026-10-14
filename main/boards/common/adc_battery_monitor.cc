@@ -1,3 +1,8 @@
+/*
+ * ADC 电池估算包装：按分压电阻配置采样并查询容量 / 充电状态。
+ * 估算依赖硬件分压和电池模型；失败时返回默认电量，不能将该值作为精确电量计结果。
+ */
+
 #include "adc_battery_monitor.h"
 
 AdcBatteryMonitor::AdcBatteryMonitor(adc_unit_t adc_unit, adc_channel_t adc_channel, float upper_resistor, float lower_resistor, gpio_num_t charging_pin)
@@ -87,6 +92,7 @@ bool AdcBatteryMonitor::IsDischarging() {
     return !IsCharging();
 }
 
+// 优先使用估算库结果；句柄无效或读取失败返回 100，仅作为界面的默认值。
 uint8_t AdcBatteryMonitor::GetBatteryLevel() {
     // 如果句柄无效，返回默认值
     if (adc_battery_estimation_handle_ == nullptr) {
@@ -105,6 +111,7 @@ void AdcBatteryMonitor::OnChargingStatusChanged(std::function<void(bool)> callba
     on_charging_status_changed_ = callback;
 }
 
+// 周期性比较充电状态，仅在发生变化时回调，减少重复 UI / 电源操作。
 void AdcBatteryMonitor::CheckBatteryStatus() {
     bool new_charging_status = IsCharging();
     if (new_charging_status != is_charging_) {

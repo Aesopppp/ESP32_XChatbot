@@ -1,3 +1,9 @@
+/*
+ * 当前 ESP32-S3 的 AFE 音频处理路径：AEC、VAD 和本地唤醒。
+ * Feed 提交麦克风与回采通道，ProcessingTask 获取处理结果，再输出定长 PCM 与检测事件。
+ * 跨任务开关 / 清理请求延后到处理任务执行，generation 用于拒绝旧会话的迟到结果。
+ */
+
 #ifndef AFE_AUDIO_ENGINE_H
 #define AFE_AUDIO_ENGINE_H
 
@@ -47,6 +53,7 @@ public:
     const std::string& GetLastDetectedWakeWord() const override { return last_detected_wake_word_; }
 
 private:
+    // WakeNet 是固定唤醒词模型；MultiNet 路径用于配置的自定义词检测，二者资源需求不同。
     enum class WakeDetector {
         kNone,
         kWakeNet,
@@ -71,13 +78,17 @@ private:
     bool is_speaking_ = false;
     std::atomic<bool> device_aec_enabled_{false};
     // Deferred AFE buffer reset, performed by ProcessingTask (see UpdateActiveState)
+    // 只在控制线程置位，由 ProcessingTask 重置 AFE 内部缓冲，避免与 fetch 并发操作。
     std::atomic<bool> reset_pending_{false};
     // Deferred WakeNet/AEC toggles, applied by ProcessingTask (see ApplyAfeControls)
+    // WakeNet / AEC 控制变更延后到音频处理线程应用。
     std::atomic<bool> afe_control_dirty_{false};
     // Deferred output_buffer_ clear, performed by the output-producing task
+    // 输出 PCM 的拼帧缓冲由产生输出的任务清理。
     std::atomic<bool> output_reset_pending_{false};
     // Incremented whenever an active AFE session is invalidated. ProcessingTask
     // uses it to reject a fetch result produced before a disable/re-enable cycle.
+    // 每次使旧处理会话失效时递增，处理任务据此丢弃开关切换前产生的结果。
     std::atomic<uint32_t> control_generation_{0};
     WakeDetector wake_detector_ = WakeDetector::kNone;
 
@@ -95,6 +106,7 @@ private:
     TaskHandle_t wake_word_encode_task_ = nullptr;
     StaticTask_t* wake_word_encode_task_buffer_ = nullptr;
     StackType_t* wake_word_encode_task_stack_ = nullptr;
+    // 最近的唤醒 PCM 与其 Opus 编码结果分别保存；不会持续累积完整对话。
     WakeWordAudioCache wake_word_audio_cache_;
     std::deque<std::vector<uint8_t>> wake_word_opus_;
     std::mutex wake_word_mutex_;

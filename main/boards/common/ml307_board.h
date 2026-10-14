@@ -1,3 +1,9 @@
+/*
+ * ML307 蜂窝模块的板级网络基础，通过 UART / AT 指令驱动联网。
+ * 检测模块、SIM 与注册状态由网络任务处理；上层仍通过 Board 获取统一网络接口。
+ * 当前 VoCat 的 Wi-Fi 联网不需要此模块或 SIM 卡。
+ */
+
 #ifndef ML307_BOARD_H
 #define ML307_BOARD_H
 

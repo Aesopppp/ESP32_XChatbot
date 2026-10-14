@@ -1,3 +1,8 @@
+/*
+ * 单颗 WS2812 RGB 指示灯，通过 RMT 输出颜色。
+ * 闪烁由 ESP 定时器任务推进，互斥锁协调灯的刷新；GPIO_NUM_NC 时不启用硬件。
+ */
+
 #include "single_led.h"
 #include "application.h"
 #include <esp_log.h> 
@@ -91,6 +96,7 @@ void SingleLed::StartContinuousBlink(int interval_ms) {
     StartBlinkTask(BLINK_INFINITE, interval_ms);
 }
 
+// 一次闪烁包含亮 / 灭两个阶段，因此计数为次数的两倍；负值用于持续闪烁。
 void SingleLed::StartBlinkTask(int times, int interval_ms) {
     if (led_strip_ == nullptr) {
         return;
@@ -104,6 +110,7 @@ void SingleLed::StartBlinkTask(int times, int interval_ms) {
     esp_timer_start_periodic(blink_timer_, interval_ms * 1000);
 }
 
+// 在定时器任务中切换亮灭，有限次数归零后停止定时器，不阻塞应用主循环。
 void SingleLed::OnBlinkTimer() {
     std::lock_guard<std::mutex> lock(mutex_);
     blink_counter_--;
@@ -120,6 +127,7 @@ void SingleLed::OnBlinkTimer() {
 }
 
 
+// 把设备状态映射到灯光；聆听时还参考 VAD，只作提示，不据此确认用户打断。
 void SingleLed::OnStateChanged() {
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();

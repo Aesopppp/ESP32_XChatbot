@@ -1,3 +1,9 @@
+/*
+ * 独立 WakeNet 检测器，供轻量音频引擎等备用路径使用。
+ * 多通道输入取首通道，按模型要求的块大小检测；命中后停止本轮检测并回调。
+ * 此实现不编码唤醒音频；当前 VoCat 的 AFE 路径由 AfeAudioEngine 管理。
+ */
+
 #ifndef ESP_WAKE_WORD_H
 #define ESP_WAKE_WORD_H
 

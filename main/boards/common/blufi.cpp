@@ -1,3 +1,9 @@
+/*
+ * 可选的 BLE Blufi 配网实现，负责蓝牙会话、Wi-Fi 扫描和配置交换。
+ * 支持的蓝牙协议栈由 Kconfig 选择；不是通过设备 AP 打开的网页配网界面。
+ * 安全上下文管理密钥协商、AES 和校验，停止配网时需释放相应协议栈 / 加密资源。
+ */
+
 #include "blufi.h"
 #include <algorithm>
 #include <cassert>
@@ -100,6 +106,7 @@ Blufi::~Blufi() {
     }
 }
 
+// 选择 NimBLE / Bluedroid 初始化路线，再注册 Blufi 和 Wi-Fi 事件桥接。
 esp_err_t Blufi::init() {
     esp_err_t ret = ESP_FAIL;
     inited_ = true;
@@ -136,6 +143,7 @@ esp_err_t Blufi::init() {
     return ESP_OK;
 }
 
+// 按所选协议栈停止 host / controller，清理细节由各后端与事件路径处理。
 esp_err_t Blufi::deinit() {
     esp_err_t ret = ESP_OK;
 
@@ -360,6 +368,7 @@ constexpr auto kBlufiHashError = ESP_BLUFI_CALC_MD5_ERROR;
 
 }  // namespace
 
+// 为新的 BLE 会话创建安全上下文，PSA 操作对象使用标准初始状态。
 void Blufi::_security_init() {
     _security_deinit();
 
@@ -381,6 +390,7 @@ void Blufi::_security_init() {
     m_sec->dec_operation = psa_cipher_operation_init();
 }
 
+// 中止加解密操作、销毁密钥并释放协商内存，避免跨会话沿用旧上下文。
 void Blufi::_security_deinit() {
     if (m_sec == nullptr) {
         return;
@@ -397,6 +407,7 @@ void Blufi::_security_deinit() {
     m_sec = nullptr;
 }
 
+// 处理手机传来的协商阶段与数据；输出长度和 need_free 决定协议栈如何管理回复缓冲。
 void Blufi::_dh_negotiate_data_handler(uint8_t* data, int len, uint8_t** output_data,
                                        int* output_len, bool* need_free) {
     if (m_sec == nullptr || data == nullptr || output_data == nullptr || output_len == nullptr ||
@@ -613,6 +624,7 @@ void Blufi::_dh_negotiate_data_handler(uint8_t* data, int len, uint8_t** output_
     }
 }
 
+// 沿用协商阶段初始化的 AES-CTR 上下文原地加密；当前忽略 iv8，返回处理字节数或错误。
 int Blufi::_aes_encrypt(uint8_t iv8, uint8_t* crypt_data, int crypt_len) {
     (void)iv8;
     if (!m_sec || m_sec->aes_key == PSA_KEY_ID_NULL || !crypt_data || crypt_len < 0) {
@@ -637,6 +649,7 @@ int Blufi::_aes_encrypt(uint8_t iv8, uint8_t* crypt_data, int crypt_len) {
     return static_cast<int>(output_len);
 }
 
+// 沿用协商阶段初始化的 AES-CTR 上下文原地解密；当前忽略 iv8，返回处理字节数或错误。
 int Blufi::_aes_decrypt(uint8_t iv8, uint8_t* crypt_data, int crypt_len) {
     (void)iv8;
     if (!m_sec || m_sec->aes_key == PSA_KEY_ID_NULL || !crypt_data || crypt_len < 0) {
@@ -678,6 +691,7 @@ int Blufi::_get_softap_conn_num() {
     return 0;
 }
 
+// 先检查已有扫描 / 配网缓存，再决定是否启动独立扫描，避免互相干扰正常连接。
 bool Blufi::start_wifi_scan() {
     ESP_LOGI(BLUFI_TAG, "Starting dedicated WiFi scan");
 
@@ -746,6 +760,7 @@ bool Blufi::start_wifi_scan() {
     return true;
 }
 
+// 将缓存热点转换为 Blufi 列表项发给手机，只包含名称与信号等扫描信息。
 void Blufi::_send_wifi_list() {
     if (m_ap_records.empty()) {
         ESP_LOGW(BLUFI_TAG, "No AP records available, sending WiFi scan fail");
@@ -770,6 +785,7 @@ void Blufi::_send_wifi_list() {
     start_wifi_scan();
 }
 
+// 扫描完成事件中更新缓存，并按待发送标志回应手机的 GET_WIFI_LIST 请求。
 void Blufi::_wifi_scan_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
                                      void* event_data) {
     Blufi* self = static_cast<Blufi*>(arg);
@@ -804,6 +820,8 @@ void Blufi::_wifi_scan_event_handler(void* arg, esp_event_base_t event_base, int
     }
 }
 
+// 蓝牙配网事件主入口：接收 SSID / 密码、请求连接、查询网络状态和扫描列表。
+// 回调处于协议栈上下文，业务状态变化应交给现有 Wi-Fi 管理器和应用调度。
 void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t* param) {
     switch (event) {
         case ESP_BLUFI_EVENT_INIT_FINISH:
@@ -1054,6 +1072,7 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t* para
     }
 }
 
+// C 风格回调桥接到单例实例，参数只在本次事件处理期间借用。
 void Blufi::_event_callback_trampoline(esp_blufi_cb_event_t event, esp_blufi_cb_param_t* param) {
     GetInstance()._handle_event(event, param);
 }

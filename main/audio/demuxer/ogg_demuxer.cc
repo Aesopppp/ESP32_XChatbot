@@ -1,3 +1,9 @@
+/*
+ * 流式 Ogg / Opus 解复用器：从分块输入中提取完整 Opus 包。
+ * 固定大小缓冲保留跨页 / 跨调用的数据，回调给出采样率和帧时长；不在此层解码为 PCM。
+ * 用于 Ogg 音效或通知资源，不能把原始 Opus 网络帧直接当 Ogg 文件处理。
+ */
+
 #include "ogg_demuxer.h"
 
 #include <algorithm>

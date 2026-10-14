@@ -1,3 +1,9 @@
+/*
+ * JPEG 解码适配：将压缩图片转换为可显示的 RGB565 像素。
+ * 支持的软件解码用于 ESP32-S3；硬件路径受 Kconfig 控制，失败后回退到软件解码。
+ * 成功返回的缓冲区由调用方释放；stride 是每行字节数，硬件块对齐时可能大于 width×2。
+ */
+
 #include "sdkconfig.h"
 #ifndef CONFIG_IDF_TARGET_ESP32
 

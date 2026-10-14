@@ -1,3 +1,9 @@
+/*
+ * 备用的轻量音频引擎：直接抽取单声道 PCM 并可接入独立 WakeNet。
+ * 此路径不提供设备端 AEC，不能用于替代 VoCat 播放期间持续监听所需的回声消除。
+ * 唤醒对象和输出缓存分别加锁，模型资源可在不使用时释放并按需恢复。
+ */
+
 #include "lite_audio_engine.h"
 
 #include <esp_log.h>
@@ -10,6 +16,7 @@
 LiteAudioEngine::LiteAudioEngine() = default;
 LiteAudioEngine::~LiteAudioEngine() = default;
 
+// 以 16 kHz 和帧时长计算输出块大小，按模型可用性准备独立唤醒检测器。
 bool LiteAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmodel_list_t* models_list) {
     codec_ = codec;
     models_list_ = models_list;
@@ -32,6 +39,7 @@ bool LiteAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmod
     return true;
 }
 
+// 先把输入交给可用的唤醒检测器，再按语音处理开关决定是否输出音频。
 void LiteAudioEngine::Feed(std::vector<int16_t>&& data) {
     {
         std::lock_guard<std::mutex> lock(wake_word_mutex_);
@@ -67,6 +75,7 @@ void LiteAudioEngine::EnableVoiceProcessing(bool enable) {
     }
 }
 
+// 此实现没有 AEC，启用请求只产生提示；需要 AEC 时应选择支持回采的 AFE 路径。
 void LiteAudioEngine::EnableDeviceAec(bool enable) {
     if (enable) {
         ESP_LOGW(TAG, "Device AEC is not supported by the lite engine");
@@ -122,6 +131,7 @@ const std::string& LiteAudioEngine::GetLastDetectedWakeWord() const {
     return wake_word_ ? wake_word_->GetLastDetectedWakeWord() : empty_wake_word_;
 }
 
+// 持有唤醒对象锁后销毁模型实例，避免正在 Feed 时释放检测器。
 void LiteAudioEngine::ReleaseWakeWordResources() {
     std::lock_guard<std::mutex> lock(wake_word_mutex_);
     wake_word_enabled_ = false;
@@ -137,6 +147,7 @@ bool LiteAudioEngine::RestoreWakeWordResources() {
     return CreateWakeWordLocked();
 }
 
+// 调用方必须已持有 wake_word_mutex_；重新创建检测器并绑定原有业务回调。
 bool LiteAudioEngine::CreateWakeWordLocked() {
     if (!should_have_wake_word_) {
         return true;
@@ -160,6 +171,7 @@ bool LiteAudioEngine::CreateWakeWordLocked() {
     return true;
 }
 
+// 交错多通道只取首通道，凑足 frame_samples_ 后移动交出一帧 PCM。
 void LiteAudioEngine::OutputRawAudio(const std::vector<int16_t>& data) {
     if (!output_callback_ || codec_ == nullptr) {
         return;

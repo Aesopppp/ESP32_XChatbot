@@ -1,3 +1,8 @@
+/*
+ * 屏幕背光控制：恢复亮度、保存用户偏好和渐变过渡。
+ * Backlight 管理目标亮度与定时器，PwmBacklight 负责 LEDC 占空比；临时省电不必覆盖 NVS。
+ */
+
 #include "backlight.h"
 #include "settings.h"
 

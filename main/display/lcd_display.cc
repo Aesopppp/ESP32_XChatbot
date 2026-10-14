@@ -1,3 +1,9 @@
+/*
+ * 通用彩色 LCD 界面：状态栏、表情、字幕、聊天气泡及图片预览。
+ * SPI / RGB / MIPI 子类负责接入不同总线，界面布局由 Kconfig 选择；当前 VoCat 使用 EmoteDisplay。
+ * LVGL 保存图片和字体的指针，因此切换界面时必须同时管理资源寿命与 GUI 锁。
+ */
+
 #include "lcd_display.h"
 #include "assets/lang_config.h"
 #include "gif/lvgl_gif.h"
@@ -25,6 +31,7 @@ LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_material_symbols_30_4);
 LV_FONT_DECLARE(font_noto_emoji_30_4);
 
+// 建立默认明暗主题，将构建选择的文字 / 图标 / 表情字体集中注册。
 void LcdDisplay::InitializeLcdThemes() {
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
     auto icon_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_ICON_FONT);
@@ -68,6 +75,7 @@ void LcdDisplay::InitializeLcdThemes() {
     theme_manager.RegisterTheme("dark", dark_theme);
 }
 
+// 接管面板句柄、恢复主题偏好，并准备图片预览超时回调；控件由 SetupUI 延后创建。
 LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel, int width,
                        int height)
     : panel_io_(panel_io), panel_(panel) {
@@ -97,6 +105,8 @@ LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     esp_timer_create(&preview_timer_args, &preview_timer_);
 }
 
+// 初始化 SPI LCD 的 LVGL 刷新配置。
+// 使用内部 SRAM 的小条带 DMA 缓冲，避免整帧 PSRAM 传输需要过大的内部中转内存。
 SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                              int width, int height, int offset_x, int offset_y, bool mirror_x,
                              bool mirror_y, bool swap_xy)
@@ -213,6 +223,7 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
 }
 
 // RGB LCD implementation
+// RGB 屏采用全帧 / 双缓冲刷新并启用防撕裂，不能直接套用 SPI 屏的 DMA 配置。
 RgbLcdDisplay::RgbLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                              int width, int height, int offset_x, int offset_y, bool mirror_x,
                              bool mirror_y, bool swap_xy)
@@ -271,6 +282,7 @@ RgbLcdDisplay::RgbLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
     }
 }
 
+// 把 MIPI DSI 面板接入 LVGL；旋转参数需与面板初始化方向一致。
 MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                                int width, int height, int offset_x, int offset_y, bool mirror_x,
                                bool mirror_y, bool swap_xy)
@@ -321,6 +333,7 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
     }
 }
 
+// 先停止 GIF / 预览定时器，再销毁控件、显示对象和面板驱动，避免回调访问失效资源。
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
 
@@ -380,11 +393,14 @@ LcdDisplay::~LcdDisplay() {
     }
 }
 
+// 通过 esp_lvgl_port 的锁保护 GUI 调用，和 LVGL 刷新任务共享同一同步机制。
 bool LcdDisplay::Lock(int timeout_ms) { return lvgl_port_lock(timeout_ms); }
 
 void LcdDisplay::Unlock() { lvgl_port_unlock(); }
 
 #if CONFIG_USE_WECHAT_MESSAGE_STYLE
+// 创建当前 Kconfig 所选布局的控件。
+// 气泡模式保存多条消息；普通模式以单个字幕标签配合中央表情显示。
 void LcdDisplay::SetupUI() {
     // Prevent duplicate calls - if already called, return early
     if (setup_ui_called_) {
@@ -539,6 +555,8 @@ void LcdDisplay::SetupUI() {
 #else
 #define MAX_MESSAGES 20
 #endif
+// 按当前布局显示角色与文字，控件更新需要显示锁。
+// 气泡模式按角色对齐和着色；普通模式替换字幕并按内容决定字幕栏是否显示。
 void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetChatMessage('%s', '%s') called before SetupUI() - message will be lost!",
@@ -742,6 +760,8 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     chat_message_label_ = msg_text;
 }
 
+// 接管预览图像的 unique_ptr，保证 LVGL 引用的像素缓冲存活。
+// 气泡模式插入图片消息；普通模式暂时遮住表情，超时或传入空指针后恢复。
 void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     DisplayLockGuard lock(this);
     if (content_ == nullptr) {
@@ -831,6 +851,7 @@ void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     lv_obj_scroll_to_view_recursive(img_bubble, LV_ANIM_ON);
 }
 
+// 清除当前布局中的聊天内容；同时更新控件指针 / 可见性，防止继续使用已删除的标签。
 void LcdDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
     if (content_ == nullptr) {
@@ -851,6 +872,8 @@ void LcdDisplay::ClearChatMessages() {
     ESP_LOGI(TAG, "Chat messages cleared");
 }
 #else
+// 创建当前 Kconfig 所选布局的控件。
+// 气泡模式保存多条消息；普通模式以单个字幕标签配合中央表情显示。
 void LcdDisplay::SetupUI() {
     // Prevent duplicate calls - if already called, return early
     if (setup_ui_called_) {
@@ -1047,6 +1070,8 @@ void LcdDisplay::SetupUI() {
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
 }
 
+// 接管预览图像的 unique_ptr，保证 LVGL 引用的像素缓冲存活。
+// 气泡模式插入图片消息；普通模式暂时遮住表情，超时或传入空指针后恢复。
 void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     DisplayLockGuard lock(this);
     if (preview_image_ == nullptr) {
@@ -1083,6 +1108,8 @@ void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     ESP_ERROR_CHECK(esp_timer_start_once(preview_timer_, PREVIEW_IMAGE_DURATION_MS * 1000));
 }
 
+// 按当前布局显示角色与文字，控件更新需要显示锁。
+// 气泡模式按角色对齐和着色；普通模式替换字幕并按内容决定字幕栏是否显示。
 void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetChatMessage('%s', '%s') called before SetupUI() - message will be lost!",
@@ -1117,6 +1144,7 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
 #endif
 }
 
+// 清除当前布局中的聊天内容；同时更新控件指针 / 可见性，防止继续使用已删除的标签。
 void LcdDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
     // In non-wechat mode, just clear the chat message label and hide the bar
@@ -1129,6 +1157,8 @@ void LcdDisplay::ClearChatMessages() {
 }
 #endif
 
+// 优先使用主题里的表情图像；找不到时回退到 Unicode / 图标字体。
+// GIF 切换必须在同一 GUI 锁范围内停止旧播放器并绑定新画布。
 void LcdDisplay::SetEmotion(const char* emotion) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetEmotion('%s') called before SetupUI() - emotion will not be displayed!",
@@ -1217,6 +1247,8 @@ void LcdDisplay::SetEmotion(const char* emotion) {
 #endif
 }
 
+// 重新绑定字体、背景和各聊天气泡颜色，再保存主题名称。
+// 主题资源需要持续存活，因为 LVGL 控件仅保存其指针。
 void LcdDisplay::SetTheme(Theme* theme) {
     DisplayLockGuard lock(this);
 
@@ -1361,6 +1393,7 @@ void LcdDisplay::SetTheme(Theme* theme) {
     Display::SetTheme(lvgl_theme);
 }
 
+// 只切换字幕栏可见性，保留字幕数据；恢复显示时仍要求字幕内容非空。
 void LcdDisplay::SetHideSubtitle(bool hide) {
     DisplayLockGuard lock(this);
     hide_subtitle_ = hide;

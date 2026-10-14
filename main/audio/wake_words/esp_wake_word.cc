@@ -1,3 +1,9 @@
+/*
+ * 独立 WakeNet 检测器，供轻量音频引擎等备用路径使用。
+ * 多通道输入取首通道，按模型要求的块大小检测；命中后停止本轮检测并回调。
+ * 此实现不编码唤醒音频；当前 VoCat 的 AFE 路径由 AfeAudioEngine 管理。
+ */
+
 #include "esp_wake_word.h"
 #include <esp_log.h>
 
@@ -16,6 +22,7 @@ EspWakeWord::~EspWakeWord() {
     }
 }
 
+// 使用传入模型列表，或自行加载 model 分区；只在自行加载时承担对应释放责任。
 bool EspWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) {
     codec_ = codec;
 
@@ -72,6 +79,7 @@ void EspWakeWord::Stop() {
     input_buffer_.clear();
 }
 
+// 在输入锁内检查运行状态，累积到模型块大小后检测；命中则保存词名、停检测并回调。
 void EspWakeWord::Feed(const std::vector<int16_t>& data) {
     if (wakenet_data_ == nullptr) {
         return;
@@ -115,9 +123,11 @@ size_t EspWakeWord::GetFeedSize() {
     return wakenet_iface_->get_samp_chunksize(wakenet_data_);
 }
 
+// 独立 WakeNet 路径暂未实现唤醒音频编码，此接口保留为空。
 void EspWakeWord::EncodeWakeWordData() {
 }
 
+// 没有唤醒 Opus 数据可取，调用方应处理 false 返回值。
 bool EspWakeWord::GetWakeWordOpus(std::vector<uint8_t>& opus) {
     return false;
 }

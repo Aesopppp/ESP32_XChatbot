@@ -1,3 +1,9 @@
+/*
+ * ES8311 音频器件的备用 esp_codec_dev 适配。
+ * 负责 I2C 控制、I2S PCM、输入 / 输出开关及硬件音量；不处理 Opus 或云端对话。
+ * 只有板级选择此实现时才启用，不能因型号相近就套用当前 VoCat 的双器件驱动。
+ */
+
 #include "es8311_audio_codec.h"
 
 #include <esp_log.h>
@@ -61,6 +67,7 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     }
 }
 
+// 将 ES8311 数字模块短暂保持复位，后续 codec 初始化释放复位；此步骤不播放提示音。
 void Es8311AudioCodec::ResetCodec() {
     // Hold the ES8311 digital blocks in reset for several milliseconds, as
     // recommended by the initialization guide. Normal codec initialization
@@ -81,6 +88,7 @@ Es8311AudioCodec::~Es8311AudioCodec() {
     audio_codec_delete_data_if(data_if_);
 }
 
+// 输入 / 输出任一开启时保持共享 codec 设备打开，两者都关闭才释放；功放引脚仅随输出开关变化。
 void Es8311AudioCodec::UpdateDeviceState() {
     if ((input_enabled_ || output_enabled_) && dev_ == nullptr) {
         esp_codec_dev_cfg_t dev_cfg = {
@@ -112,6 +120,7 @@ void Es8311AudioCodec::UpdateDeviceState() {
     }
 }
 
+// 输入输出共享同一 I2S 控制器的时钟，因此这里要求两侧采样率一致。
 void Es8311AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
     assert(input_sample_rate_ == output_sample_rate_);
 
@@ -170,6 +179,7 @@ void Es8311AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
     ESP_LOGI(TAG, "Duplex channels created");
 }
 
+// 同一数据接口锁内先应用硬件音量，再调用基类持久化；设备尚未打开时保留值用于下一次开启。
 void Es8311AudioCodec::SetOutputVolume(int volume) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (dev_ != nullptr) {
@@ -202,6 +212,7 @@ void Es8311AudioCodec::EnableOutput(bool enable) {
     UpdateDeviceState();
 }
 
+// samples 是 int16_t 元素数，驱动接口接收字节数；本实现返回请求数，不能仅据此认定底层读操作成功。
 int Es8311AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(dev_, (void*)dest, samples * sizeof(int16_t)));
@@ -209,6 +220,7 @@ int Es8311AudioCodec::Read(int16_t* dest, int samples) {
     return samples;
 }
 
+// 输出开启时才写入 codec；返回请求的采样数，底层错误由日志记录而不是返回负数。
 int Es8311AudioCodec::Write(const int16_t* data, int samples) {
     if (output_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_write(dev_, (void*)data, samples * sizeof(int16_t)));

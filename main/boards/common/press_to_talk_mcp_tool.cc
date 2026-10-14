@@ -1,3 +1,8 @@
+/*
+ * 按住说话 / 点击说话模式的可选 MCP 设置工具。
+ * 模式保存在 vendor 命名空间中，按键行为仍由使用此工具的板级实现读取；不会自动改变 ACOS VAD。
+ */
+
 #include "press_to_talk_mcp_tool.h"
 #include <esp_log.h>
 

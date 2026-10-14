@@ -1,3 +1,9 @@
+/*
+ * 固件资源管理：挂载资源分区、加载唤醒模型、更新显示主题与字形能力。
+ * LVGL 与 Emote 使用不同资源策略；资源更新和固件 OTA 是两个独立流程。
+ * 读取到的资源地址通常借用 Flash 映射，卸载或覆盖资源后不能继续访问旧地址。
+ */
+
 #include "assets.h"
 #include "application.h"
 #include "board.h"

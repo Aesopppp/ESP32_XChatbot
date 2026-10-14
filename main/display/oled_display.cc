@@ -1,3 +1,9 @@
+/*
+ * 单色 OLED 的备用显示实现，支持 128×64 和 128×32 两种布局。
+ * 继承 LVGL 公共状态栏逻辑，用字体符号显示表情；不承担当前 VoCat 的彩色动画界面。
+ * 构造时接入显示驱动，SetupUI 再创建控件，避免在资源和主题尚未就绪时使用字体。
+ */
+
 #include "oled_display.h"
 #include "assets/lang_config.h"
 #include "lvgl_font.h"
@@ -87,6 +93,7 @@ OledDisplay::OledDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handl
     // to ensure lvgl objects are created after the display is fully initialized.
 }
 
+// 依据高度建立对应布局，并避免重复创建同一组控件。
 void OledDisplay::SetupUI() {
     // Prevent duplicate calls - if already called, return early
     if (setup_ui_called_) {
@@ -102,6 +109,7 @@ void OledDisplay::SetupUI() {
     }
 }
 
+// 先清理子控件引用再删除父容器，避免重复删除；最后移除面板和端口资源。
 OledDisplay::~OledDisplay() {
     if (content_ != nullptr) {
         lv_obj_del(content_);
@@ -146,6 +154,7 @@ bool OledDisplay::Lock(int timeout_ms) { return lvgl_port_lock(timeout_ms); }
 
 void OledDisplay::Unlock() { lvgl_port_unlock(); }
 
+// 单色屏使用单个文字标签，先消除换行以适配有限的显示高度。
 void OledDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
     if (chat_message_label_ == nullptr) {
@@ -169,6 +178,7 @@ void OledDisplay::SetChatMessage(const char* role, const char* content) {
     }
 }
 
+// 较高屏幕将状态栏和表情 / 字幕分区显示，空间足够放置更多状态信息。
 void OledDisplay::SetupUI_128x64() {
     DisplayLockGuard lock(this);
 
@@ -304,6 +314,7 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
 }
 
+// 低高度屏幕采用紧凑布局，减少控件占用的行数。
 void OledDisplay::SetupUI_128x32() {
     DisplayLockGuard lock(this);
 
@@ -392,6 +403,7 @@ void OledDisplay::SetupUI_128x32() {
                                    LV_PART_MAIN);
 }
 
+// 通过 Noto 表情或 Material 符号字体显示情绪，未找到的名称回退为 neutral。
 void OledDisplay::SetEmotion(const char* emotion) {
     auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
     const char* utf8 = noto_emoji_get_utf8(emotion);
@@ -423,6 +435,7 @@ void OledDisplay::SetTheme(Theme* theme) {
     lv_obj_set_style_text_font(screen, text_font, 0);
 }
 
+// 按 NVS 偏好选择是否关闭面板，再执行公共层的待机显示处理。
 void OledDisplay::SetPowerSaveMode(bool on) {
     if (panel_) {
         Settings settings("wifi", false);

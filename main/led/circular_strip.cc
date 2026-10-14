@@ -1,3 +1,8 @@
+/*
+ * 环形 WS2812 灯带：统一颜色、滚动、呼吸、渐隐等状态动画。
+ * 每个像素颜色保存在 colors_，定时器回调在互斥锁内修改像素并刷新灯带。
+ */
+
 #include "circular_strip.h"
 #include "application.h"
 #include <esp_log.h>
@@ -96,6 +101,7 @@ void CircularStrip::Blink(StripColor color, int interval_ms) {
     });
 }
 
+// 每次定时回调将 RGB 分量减半，所有灯归零后停止动画定时器。
 void CircularStrip::FadeOut(int interval_ms) {
     StartStripTask(interval_ms, [this]() {
         bool all_off = true;
@@ -117,6 +123,7 @@ void CircularStrip::FadeOut(int interval_ms) {
     });
 }
 
+// 在给定的低 / 高颜色间逐级变化，三色分量都到达端点后反转方向。
 void CircularStrip::Breathe(StripColor low, StripColor high, int interval_ms) {
     breathe_up_    = true;
     breathe_color_ = low;
@@ -140,6 +147,7 @@ void CircularStrip::Breathe(StripColor low, StripColor high, int interval_ms) {
     });
 }
 
+// 按偏移移动一段高亮像素，使用模运算使亮段在环形灯带上连续循环。
 void CircularStrip::Scroll(StripColor low, StripColor high, int length, int interval_ms) {
     for (int i = 0; i < max_leds_; i++) {
         colors_[i] = low;
@@ -180,6 +188,7 @@ void CircularStrip::SetBrightness(uint8_t default_brightness, uint8_t low_bright
     OnStateChanged();
 }
 
+// 为各设备状态选择灯带动画；更换动画时停止旧周期并切换回调。
 void CircularStrip::OnStateChanged() {
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();

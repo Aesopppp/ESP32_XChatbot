@@ -1,3 +1,9 @@
+/*
+ * 备用的轻睡眠 / 深睡眠计时器。
+ * 硬件睡眠会暂停部分外设，需由使用它的板级代码配置唤醒源；不是 ACOS 保持连接的对话待机。
+ * 轻睡眠路径包含阻塞循环，当前 VoCat 对话逻辑不能直接用它替代音频上传门控。
+ */
+
 #include "sleep_timer.h"
 #include "application.h"
 #include "board.h"
@@ -65,6 +71,8 @@ void SleepTimer::OnEnterDeepSleepMode(std::function<void()> callback) {
     on_enter_deep_sleep_mode_ = callback;
 }
 
+// 应用忙碌时重置倒计时；到达阈值后进入所配置的硬件睡眠阶段。
+// 轻睡眠操作被调度到应用线程，定时唤醒后刷新屏幕，非定时唤醒时退出睡眠循环。
 void SleepTimer::CheckTimer() {
     auto& app = Application::GetInstance();
     if (!app.CanEnterSleepMode()) {
@@ -134,6 +142,7 @@ void SleepTimer::CheckTimer() {
     }
 }
 
+// 恢复计时和逻辑标志，并调用板级退出轻睡眠回调。
 void SleepTimer::WakeUp() {
     ticks_ = 0;
     if (in_light_sleep_mode_) {

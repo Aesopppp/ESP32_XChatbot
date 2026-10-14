@@ -1,3 +1,8 @@
+/*
+ * 没有 PSRAM 时的 LVGL 小内存池分配入口。
+ * 将初始池限制为 32 KiB；此容量选择与有 PSRAM 的界面资源策略不同。
+ */
+
 #ifndef LVGL_NO_PSRAM_POOL_H
 #define LVGL_NO_PSRAM_POOL_H
 

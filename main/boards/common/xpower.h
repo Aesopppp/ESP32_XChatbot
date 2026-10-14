@@ -1,3 +1,9 @@
+/*
+ * XPowersLib 的 I2C 桥接层，支持编译时选择的 AXP 系列芯片。
+ * 包含本头文件前需定义 XPOWERS_CHIP_*；读写回调按 7 位地址查找本地实例并复用 I2cDevice。
+ * 同一地址只记录一个实例，实例应保持有效；本模块不为当前 VoCat 自动增加新电源硬件。
+ */
+
 #ifndef __XPOWERS_H__
 #define __XPOWERS_H__
 
@@ -77,6 +83,7 @@ public:
 private:
     // The iic_fptr_t callbacks carry no `this`, so the instance is looked up in the
     // static table by slave address.
+    // XPowers 回调不带 this，按器件地址查实例；找不到实例时返回错误。
     static int ReadCallback(uint8_t devAddr, uint8_t regAddr, uint8_t* data, uint8_t len) {
         Xpowers* self = Find(devAddr);
         if (self == nullptr) {
@@ -99,6 +106,7 @@ private:
         return s_instances_[devAddr & 0x7F];
     }
 
+    // 地址到实例的静态索引，使用者需保证注册对象寿命和地址唯一性。
     static inline Xpowers* s_instances_[128] = {};  // C++17 inline static member
 };
 

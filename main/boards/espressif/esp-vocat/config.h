@@ -15,6 +15,7 @@
 // v1.2 音频电源控制；PCB 探测必须保持正确电平，否则音频和共用 I2C 外设异常。
 #define CORDEC_POWER_CTRL  GPIO_NUM_48
 
+// 电源和 SD 卡 SPI 引脚属于实际接线，移植硬件时应建立新板型，不能只改名称。
 #define POWER_CTRL  GPIO_NUM_9
 #define LED_G       GPIO_NUM_43
 #define SD_MISO     GPIO_NUM_17
@@ -41,6 +42,7 @@
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_NC
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_NC
 
+// 显示逻辑尺寸和坐标变换；触屏手势与菜单命中区域同样按 360×360 计算。
 #define DISPLAY_WIDTH       360
 #define DISPLAY_HEIGHT      360
 #define DISPLAY_MIRROR_X    false
@@ -51,6 +53,7 @@
 #define QSPI_LCD_V_RES           (360)
 #define QSPI_LCD_BIT_PER_PIXEL   (16)
 
+// LCD 使用 QSPI 总线：时钟、片选和四根数据线；背光是另一路 GPIO / PWM。
 #define QSPI_LCD_HOST           SPI2_HOST
 #define QSPI_PIN_NUM_LCD_PCLK   GPIO_NUM_18
 #define QSPI_PIN_NUM_LCD_CS     GPIO_NUM_14
@@ -73,6 +76,7 @@
 #define DISPLAY_OFFSET_X  0
 #define DISPLAY_OFFSET_Y  0
 
+// 电容触屏使用独立 I2C 端口与中断引脚，不能混同于音频 codec 的 I2C 总线。
 #define TP_PORT          (I2C_NUM_1)
 #define TP_PIN_NUM_RST   (GPIO_NUM_NC)
 #define TP_PIN_NUM_INT   (GPIO_NUM_10)

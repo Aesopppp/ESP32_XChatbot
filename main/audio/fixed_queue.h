@@ -38,6 +38,7 @@ public:
         return *storage_[head_];
     }
 
+    // 按值接收再移动到槽位，满队列返回 false；失败时传入的移动对象已由本次参数接管。
     bool push_back(T value) {
         if (full()) {
             return false;
@@ -47,6 +48,7 @@ public:
         return true;
     }
 
+    // reset 立即析构该槽的元素，释放其拥有的 payload；空队列调用会中止。
     void pop_front() {
         if (empty()) {
             esp_system_abort("FixedQueue::pop_front() called on an empty queue");

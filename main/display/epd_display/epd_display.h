@@ -1,3 +1,9 @@
+/*
+ * 电子纸备用显示驱动：把 LVGL 的 RGB565 刷新区域转换为单色帧缓冲。
+ * 通过 SPI 命令和波形表完成全刷 / 局刷；当前 VoCat 的彩色 LCD 不走这条路径。
+ * BUSY 等待是阻塞操作，不能把此路径用于要求音频实时响应的回调。
+ */
+
 #ifndef __EPD_DISPLAY_H__
 #define __EPD_DISPLAY_H__
 
@@ -31,6 +37,7 @@ public:
     ~EpdDisplay() override;
 
     // Call once after the most-derived object is fully constructed, before SetupUI().
+    // 最派生屏幕对象构造完成后调用一次，此时才可安全使用其虚函数波形配置。
     void Initialize();
 
     virtual void EPD_Init();    /* Initialize the E-Paper display */
@@ -50,6 +57,7 @@ protected:
     };
 
     // Return static or member-owned data, never a local array.
+    // 波形数据必须来自静态区或长寿命成员，不能返回局部数组的地址。
     virtual Waveform GetFullWaveform() const = 0;
     virtual Waveform GetPartialWaveform() const = 0;
 
@@ -57,6 +65,7 @@ protected:
     const int Width;
     const int Height;
     spi_device_handle_t spi;
+    // 单色帧缓冲由本驱动拥有，一字节对应 8 个像素；不使用 LCD 的 RGB565 像素数组布局。
     uint8_t *buffer = NULL;
     
     void read_busy();

@@ -1,3 +1,9 @@
+/*
+ * ESP-VoCat 当前使用的 Emote 显示适配层。
+ * 把应用的状态、字幕、表情请求转换为 expression_emote 事件，并对接 LCD 刷新完成回调。
+ * Flash 资源映射由 Emote 管理；直接操作其 LVGL 控件时，应使用 emote_lock 而非本类的空锁。
+ */
+
 #include "emote_display.h"
 
 // Standard C++ headers
@@ -143,6 +149,8 @@ void EmoteDisplay::SetEmotion(const char* const emotion) {
     }
 }
 
+// 将系统提示和正常字幕分发到不同 Emote 事件。
+// 配网链接的换行先转换为空格，便于在设备提示框中显示。
 void EmoteDisplay::SetChatMessage(const char* const role, const char* const content) {
     ESP_LOGI(TAG, "SetChatMessage: %s, %s", role, content);
     if (emote_handle_ && content && strlen(content) > 0) {
@@ -162,6 +170,8 @@ void EmoteDisplay::SetChatMessage(const char* const role, const char* const cont
 
 // 应用状态文本映射到 Emote 事件，最终图标由资源包定义。
 // 更换播放图标需重打包图像资源，仅修改状态文字不会改变图标像素。
+// 把本地化状态文字映射为聆听、待命、说话等动画事件。
+// 此处只更新呈现；不启动或停止音频任务。
 void EmoteDisplay::SetStatus(const char* const status) {
     ESP_LOGI(TAG, "SetStatus: %s", status);
     if (emote_handle_ && status && strlen(status) > 0) {
@@ -177,6 +187,7 @@ void EmoteDisplay::SetStatus(const char* const status) {
     }
 }
 
+// 把通知交给 Emote 系统提示事件；此实现未使用 duration_ms，显示时长由 Emote 决定。
 void EmoteDisplay::ShowNotification(const char* notification, int duration_ms) {
     ESP_LOGI(TAG, "ShowNotification: %s", notification);
     if (emote_handle_ && notification && strlen(notification) > 0) {
@@ -184,6 +195,7 @@ void EmoteDisplay::ShowNotification(const char* notification, int duration_ms) {
     }
 }
 
+// 当前为状态栏扩展入口，仅检查句柄和记录调用，并未更新电池或网络图标。
 void EmoteDisplay::UpdateStatusBar(bool update_all) {
     ESP_LOGD(TAG, "UpdateStatusBar: %s", update_all ? "true" : "false");
     if (!emote_handle_) {
@@ -191,6 +203,7 @@ void EmoteDisplay::UpdateStatusBar(bool update_all) {
     }
 }
 
+// 当前仅保留省电接口和日志，实际音频 / 网络省电由各自模块控制。
 void EmoteDisplay::SetPowerSaveMode(bool on) {
     ESP_LOGI(TAG, "SetPowerSaveMode: %s", on ? "ON" : "OFF");
     if (!emote_handle_) {
@@ -198,6 +211,7 @@ void EmoteDisplay::SetPowerSaveMode(bool on) {
     }
 }
 
+// 本后端暂不提供通用图片预览，不能把调用成功等同于图片已经显示。
 void EmoteDisplay::SetPreviewImage(const void* image) {
     if (image) {
         ESP_LOGI(TAG, "SetPreviewImage: Preview image not supported, using default icon");
@@ -223,12 +237,14 @@ bool EmoteDisplay::MountAssets(const char* partition_label) {
     return emote_mount_assets(emote_handle_, &data) == ESP_OK;
 }
 
+// 卸载映射后原资源指针失效，应先停止使用对应资源的动画 / 控件。
 void EmoteDisplay::UnmountAssets() {
     if (emote_handle_ != nullptr) {
         emote_unmount_assets(emote_handle_);
     }
 }
 
+// 返回资源的借用指针与长度；资源仍属于 Emote，调用方不能释放该指针。
 bool EmoteDisplay::GetAssetData(const std::string& name, const uint8_t*& data, size_t& size) {
     if (emote_handle_ == nullptr) {
         return false;
@@ -236,6 +252,7 @@ bool EmoteDisplay::GetAssetData(const std::string& name, const uint8_t*& data, s
     return emote_get_asset_data_by_name(emote_handle_, name.c_str(), &data, &size) == ESP_OK;
 }
 
+// 加载已挂载资源中的动画配置，挂载与加载是两个不同步骤。
 void EmoteDisplay::LoadAssets() {
     if (emote_handle_ != nullptr) {
         emote_load_assets(emote_handle_);
@@ -244,6 +261,7 @@ void EmoteDisplay::LoadAssets() {
 
 void EmoteDisplay::SetTheme(Theme* const theme) { ESP_LOGI(TAG, "SetTheme: %p", theme); }
 
+// 此接口返回成功但不真正加锁；直接改 Emote 内部控件需使用 emote_lock。
 bool EmoteDisplay::Lock(const int timeout_ms) {
     (void)timeout_ms;
     return true;
@@ -251,6 +269,7 @@ bool EmoteDisplay::Lock(const int timeout_ms) {
 
 void EmoteDisplay::Unlock() {}
 
+// 停止临时插入的动画对话，恢复正常的状态 / 表情显示流程。
 bool EmoteDisplay::StopAnimDialog() {
     ESP_LOGI(TAG, "StopAnimDialog");
     if (emote_handle_) {
@@ -259,6 +278,7 @@ bool EmoteDisplay::StopAnimDialog() {
     return false;
 }
 
+// 按名称插入定时动画，时长单位为毫秒；不改变应用的对话状态。
 bool EmoteDisplay::InsertAnimDialog(const char* emoji_name, uint32_t duration_ms) {
     ESP_LOGI(TAG, "InsertAnimDialog: %s, %" PRIu32, emoji_name, duration_ms);
     if (emote_handle_ && emoji_name) {
@@ -267,6 +287,7 @@ bool EmoteDisplay::InsertAnimDialog(const char* emoji_name, uint32_t duration_ms
     return false;
 }
 
+// 请求 Emote 重新绘制界面，用于菜单退出等场景下恢复画面。
 void EmoteDisplay::RefreshAll() {
     if (emote_handle_) {
         emote_notify_all_refresh(emote_handle_);

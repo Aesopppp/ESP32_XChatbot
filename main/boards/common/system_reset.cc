@@ -1,3 +1,8 @@
+/*
+ * 物理按键触发的 NVS 清除、OTA 启动记录清除及延时重启工具。
+ * 这些接口会丢失持久化设置，属于显式恢复操作，不能拿来处理普通 Wi-Fi 重连。
+ */
+
 #include "system_reset.h"
 
 #include <esp_log.h>
@@ -36,6 +41,7 @@ void SystemReset::CheckButtons() {
     }
 }
 
+// 擦除整个默认 NVS 分区并重新初始化，Wi-Fi、音量等已保存配置会一并丢失。
 void SystemReset::ResetNvsFlash() {
     ESP_LOGI(TAG, "Resetting NVS flash");
     esp_err_t ret = nvs_flash_erase();
@@ -48,6 +54,7 @@ void SystemReset::ResetNvsFlash() {
     }
 }
 
+// 擦除 otadata 启动记录再重启；结果取决于现有分区与固件，不会下载一份原厂固件。
 void SystemReset::ResetToFactory() {
     ESP_LOGI(TAG, "Resetting to factory");
     // Erase otadata partition

@@ -1,3 +1,9 @@
+/*
+ * 全局板级能力抽象及设备信息组装。
+ * 构建只选择一个 DECLARE_BOARD 工厂；核心应用依赖此接口，避免耦合具体引脚或板型。
+ * 显示、指示灯、背光、摄像头和电池均按可选能力处理。
+ */
+
 #include "board.h"
 #include "assets/lang_config.h"
 #include "display/display.h"

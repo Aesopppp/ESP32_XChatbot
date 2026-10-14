@@ -1,3 +1,9 @@
+/*
+ * 流式 Ogg / Opus 解复用器：从分块输入中提取完整 Opus 包。
+ * 固定大小缓冲保留跨页 / 跨调用的数据，回调给出采样率和帧时长；不在此层解码为 PCM。
+ * 用于 Ogg 音效或通知资源，不能把原始 Opus 网络帧直接当 Ogg 文件处理。
+ */
+
 #ifndef OGG_DEMUXER_H_
 #define OGG_DEMUXER_H_
 
@@ -9,6 +15,7 @@
 
 class OggDemuxer {
 private:
+    // 逐步解析页标记、固定页头、段表和负载，以支持任意网络 / 文件分块边界。
     enum ParseState : int8_t {
         FIND_PAGE,
         PARSE_HEADER,
@@ -29,6 +36,7 @@ private:
         bool packet_continued{false};   // Whether the current packet spans segments
         uint8_t header[27];             // Ogg page header
         uint8_t seg_table[255];         // Current segment table
+        // 完整 Opus 包的固定容量上限；解析时必须处理超限，不能按输入长度无界复制。
         uint8_t packet_buf[2048];       // 2 KB packet buffer
         size_t packet_len = 0;          // Bytes accumulated in the packet buffer
         size_t seg_count = 0;           // Segment count in the current page
@@ -52,6 +60,7 @@ public:
     bool Finish() const;
     bool HasError() const { return has_error_; }
 
+    // 回调内 data 借用内部缓冲，若异步排队必须复制数据，不能保存这个裸指针。
     void OnPacket(std::function<void(const uint8_t* data, int sample_rate, int frame_duration_ms,
                                      size_t len)> on_packet) {
         on_packet_ = std::move(on_packet);

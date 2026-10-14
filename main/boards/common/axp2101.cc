@@ -1,3 +1,8 @@
+/*
+ * AXP2101 电源管理芯片的寄存器访问封装。
+ * 提供充放电、电量、温度和关机查询 / 控制，只有板上实际使用该芯片时才有意义。
+ */
+
 #include "axp2101.h"
 #include "board.h"
 #include "display.h"

@@ -1,3 +1,8 @@
+/*
+ * 2.9 英寸电子纸的具体波形配置。
+ * 波形字节用于控制面板电压刷新时序，属于型号相关参数，不能当作图片或随意修改。
+ */
+
 #include "epd_display_2_9.h"
 
 const uint8_t EpdDisplay_2_9::WF_Full[] = {

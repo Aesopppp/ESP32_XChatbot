@@ -1,3 +1,9 @@
+/*
+ * NT26 UART 以太网蜂窝模块的网络适配与注册状态查询。
+ * 以事件和就绪超时管理联网，MRDY / SRDY 等握手引脚属于该模块硬件约定。
+ * 保留的扩展路径，不参与当前 VoCat 默认 Wi-Fi 连接。
+ */
+
 #ifndef NT26_BOARD_H
 #define NT26_BOARD_H
 

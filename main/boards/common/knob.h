@@ -1,3 +1,8 @@
+/*
+ * 旋转编码器包装：读取 A / B 相变化并回调旋转方向。
+ * OnRotate 的布尔参数为 true 表示 KNOB_RIGHT；旋转对应音量还是其他功能由调用方选择。
+ */
+
 #ifndef KNOB_H_
 #define KNOB_H_
 

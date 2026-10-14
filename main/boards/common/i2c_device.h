@@ -1,3 +1,9 @@
+/*
+ * I2C 寄存器设备基础类，供电源芯片等公共驱动复用。
+ * 借用板级 I2C 总线，注册 7 位地址、400 kHz 的从设备；寄存器传输超时为 100 毫秒。
+ * 错误由 ESP_ERROR_CHECK 处理，ResetBus 重置共享总线，不等同于只重置某一颗芯片。
+ */
+
 #ifndef I2C_DEVICE_H
 #define I2C_DEVICE_H
 

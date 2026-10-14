@@ -1,3 +1,9 @@
+/*
+ * 显示抽象接口：让应用通过统一方法更新状态、表情、字幕及资源。
+ * 屏幕只呈现应用状态；真正的录音、播放和联网状态由 Application / AudioService / Protocol 控制。
+ * 部分硬件没有屏幕或不支持某项能力，基类提供空操作；锁的实现由具体显示后端决定。
+ */
+
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
@@ -23,6 +29,7 @@
 class LvglFont;
 class LvglImage;
 
+// 主题基类只暴露名称和字体能力，具体颜色、资源由显示后端扩展。
 class Theme {
 public:
     Theme(const std::string& name) : name_(name) {}
@@ -37,6 +44,7 @@ private:
 
 // 统一屏幕接口：具体板型可选择 LVGL、Emote 或 NoDisplay。
 // 情绪、状态图标和字幕是独立更新通路，不应把显示 Speaking 当作播放完成依据。
+// 应用面向此接口编程，避免核心对话逻辑依赖某一种屏幕或 GUI 库。
 class Display {
 public:
     Display();
@@ -104,6 +112,7 @@ protected:
 };
 
 // 作用域锁：LVGL 实现需要保护 GUI 访问；取得失败时调用方应检查 bool 再操作。
+// 析构时仅在成功加锁后解锁；本对象不会替调用方中止后续控件操作。
 class DisplayLockGuard {
 public:
     explicit DisplayLockGuard(Display* display)
@@ -128,6 +137,7 @@ private:
     bool locked_;
 };
 
+// 无屏幕设备使用的空实现，保持上层调用流程一致。
 class NoDisplay : public Display {
 private:
     virtual bool Lock(int timeout_ms = 0) override { return true; }

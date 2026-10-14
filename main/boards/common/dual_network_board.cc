@@ -1,3 +1,8 @@
+/*
+ * Wi-Fi / ML307 双网络选择器，向当前选中的 Board 转发网络操作。
+ * 网络类型保存在 NVS；切换涉及网络对象和设备生命周期，不是两个通道同时传输音频。
+ */
+
 #include "dual_network_board.h"
 #include "application.h"
 #include "display.h"
@@ -32,6 +37,7 @@ void DualNetworkBoard::SaveNetworkTypeToSettings(NetworkType type) {
     settings.SetInt("type", network_type);
 }
 
+// 只创建所选网络后端，避免 Wi-Fi 和 ML307 在此层同时初始化并争用资源。
 void DualNetworkBoard::InitializeCurrentBoard() {
     if (network_type_ == NetworkType::ML307) {
         ESP_LOGI(TAG, "Initialize ML307 board");
@@ -42,6 +48,7 @@ void DualNetworkBoard::InitializeCurrentBoard() {
     }
 }
 
+// 把新的网络选择保存到 NVS，显示提示后重启，重启时才创建另一种后端。
 void DualNetworkBoard::SwitchNetworkType() {
     auto display = GetDisplay();
     if (network_type_ == NetworkType::WIFI) {    
@@ -77,6 +84,7 @@ void DualNetworkBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
     current_board_->SetNetworkEventCallback(std::move(callback));
 }
 
+// 返回当前后端的网络接口，上层不需要知道底层是 Wi-Fi 还是蜂窝 modem。
 NetworkInterface* DualNetworkBoard::GetNetwork() {
     return current_board_->GetNetwork();
 }

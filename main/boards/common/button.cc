@@ -1,3 +1,9 @@
+/*
+ * 物理按键包装：把 iot_button 的 GPIO / ADC 事件转换为 C++ 回调。
+ * 模块处理按下、松开、单击、长按和多击；业务动作由板级注册的回调决定。
+ * 回调由按键组件调用，不能假定处于应用主任务；修改对话状态时应通过 Application 调度。
+ */
+
 #include "button.h"
 
 #include <button_gpio.h>
@@ -35,12 +41,14 @@ Button::Button(gpio_num_t gpio_num, bool active_high, uint16_t long_press_time, 
     ESP_ERROR_CHECK(iot_button_new_gpio_device(&button_config, &gpio_config, &button_handle_));
 }
 
+// 包装对象拥有 button_handle，即使句柄由外部构造传入，析构也会删除底层按键。
 Button::~Button() {
     if (button_handle_ != NULL) {
         iot_button_delete(button_handle_);
     }
 }
 
+// 注册电平按下事件，适合按住说话的开始动作；事件消抖由按键组件处理。
 void Button::OnPressDown(std::function<void()> callback) {
     if (button_handle_ == nullptr) {
         return;
@@ -54,6 +62,7 @@ void Button::OnPressDown(std::function<void()> callback) {
     }, this);
 }
 
+// 注册松开事件，适合与按下配对实现结束动作。
 void Button::OnPressUp(std::function<void()> callback) {
     if (button_handle_ == nullptr) {
         return;
@@ -67,6 +76,7 @@ void Button::OnPressUp(std::function<void()> callback) {
     }, this);
 }
 
+// 注册长按达到阈值的开始事件；这里不是每次按住轮询都反复执行。
 void Button::OnLongPress(std::function<void()> callback) {
     if (button_handle_ == nullptr) {
         return;
@@ -80,6 +90,7 @@ void Button::OnLongPress(std::function<void()> callback) {
     }, this);
 }
 
+// 注册完成的单击手势，区别于刚按下时的 OnPressDown。
 void Button::OnClick(std::function<void()> callback) {
     if (button_handle_ == nullptr) {
         return;
@@ -93,6 +104,7 @@ void Button::OnClick(std::function<void()> callback) {
     }, this);
 }
 
+// 注册双击手势，具体判定时间由按键组件负责。
 void Button::OnDoubleClick(std::function<void()> callback) {
     if (button_handle_ == nullptr) {
         return;
@@ -106,6 +118,7 @@ void Button::OnDoubleClick(std::function<void()> callback) {
     }, this);
 }
 
+// 向组件传入指定连续点击次数，同一包装对象保存此多击回调。
 void Button::OnMultipleClick(std::function<void()> callback, uint8_t click_count) {
     if (button_handle_ == nullptr) {
         return;

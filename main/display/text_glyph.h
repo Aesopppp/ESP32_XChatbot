@@ -1,3 +1,9 @@
+/*
+ * 动态字形的数据结构与专用分配器。
+ * 字形包含 Unicode、字距、位图尺寸、偏移和像素；优先使用可用的 PSRAM 存储这些数据。
+ * 分配器遇到长度溢出或分配失败会终止，网络入口必须先限制字形数量和位图大小。
+ */
+
 #pragma once
 
 #include <esp_heap_caps.h>
@@ -22,6 +28,7 @@ public:
     template <typename U>
     TextGlyphAllocator(const TextGlyphAllocator<U>&) noexcept {}
 
+    // 先检查乘法溢出，再依据实际 PSRAM 可用性选择 heap_caps 分配能力。
     T* allocate(size_t count) {
         if (count == 0) {
             return nullptr;
@@ -56,6 +63,7 @@ bool operator!=(const TextGlyphAllocator<T>&, const TextGlyphAllocator<U>&) {
 template <typename T>
 using TextGlyphVector = std::vector<T, TextGlyphAllocator<T>>;
 
+// 一份字形的布局指标与像素数据；adv_w 保留协议传入的 LVGL 字距单位。
 struct TextGlyph {
     uint32_t codepoint = 0;
     uint32_t adv_w = 0;

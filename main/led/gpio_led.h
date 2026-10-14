@@ -1,3 +1,8 @@
+/*
+ * 普通 GPIO 指示灯，通过 LEDC PWM 实现亮度、闪烁和呼吸效果。
+ * 渐变结束在中断中发生，只通知专用任务；任务中再处理下一段渐变和互斥锁。
+ */
+
 #ifndef _GPIO_LED_H_
 #define _GPIO_LED_H_
 
@@ -31,6 +36,7 @@ class GpioLed : public Led {
     int blink_counter_ = 0;
     int blink_interval_ms_ = 0;
     esp_timer_handle_t blink_timer_ = nullptr;
+    // 记录下一段渐变方向；渐变结束后由工作任务翻转，实现呼吸效果。
     bool fade_up_ = true;
     TaskHandle_t event_task_handle_;
     
@@ -43,6 +49,7 @@ class GpioLed : public Led {
     void StartContinuousBlink(int interval_ms);
     void StartFadeTask();
     void OnFadeEnd();
+    // LEDC ISR 桥接，只通知 EventTask；不在中断中持有 std::mutex。
     static bool IRAM_ATTR FadeCallback(const ledc_cb_param_t *param, void *user_arg);
 };
 

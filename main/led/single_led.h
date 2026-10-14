@@ -1,3 +1,8 @@
+/*
+ * 单颗 WS2812 RGB 指示灯，通过 RMT 输出颜色。
+ * 闪烁由 ESP 定时器任务推进，互斥锁协调灯的刷新；GPIO_NUM_NC 时不启用硬件。
+ */
+
 #ifndef _SINGLE_LED_H_
 #define _SINGLE_LED_H_
 

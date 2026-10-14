@@ -1,3 +1,8 @@
+/*
+ * ADC 电池估算包装：按分压电阻配置采样并查询容量 / 充电状态。
+ * 估算依赖硬件分压和电池模型；失败时返回默认电量，不能将该值作为精确电量计结果。
+ */
+
 #ifndef ADC_BATTERY_MONITOR_H
 #define ADC_BATTERY_MONITOR_H
 

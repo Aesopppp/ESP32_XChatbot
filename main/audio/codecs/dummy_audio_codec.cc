@@ -1,3 +1,8 @@
+/*
+ * 无真实音频硬件的占位实现，保留 AudioCodec 接口便于兼容。
+ * Read / Write 返回 0，不会采集麦克风或播放声音；不是当前 VoCat 的音频驱动。
+ */
+
 #include "dummy_audio_codec.h"
 
 DummyAudioCodec::DummyAudioCodec(int input_sample_rate, int output_sample_rate) {

@@ -25,6 +25,7 @@ extern "C" {
  * @brief BSP touch configuration structure
  *
  */
+// 触屏创建配置；dummy 仅为预留字段，当前不承载用户设置。
 typedef struct {
     void *dummy;    /*!< Prepared for future use. */
 } bsp_touch_config_t;
@@ -44,6 +45,8 @@ typedef struct {
  *      - ESP_OK         On success
  *      - Else           esp_lcd_touch failure
  */
+// 创建触屏驱动并通过 ret_touch 返回句柄，成功后由调用方管理寿命。
+// 需要释放时使用 esp_lcd_touch_del；调用者应检查返回错误，再注册 GUI 输入设备。
 esp_err_t bsp_touch_new(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch);
 
 #ifdef __cplusplus

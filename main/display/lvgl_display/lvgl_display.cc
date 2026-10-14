@@ -1,3 +1,9 @@
+/*
+ * LVGL 显示公共层：通知、状态栏、动态字形、字体切换和截图。
+ * 具体屏幕子类创建控件并实现 Lock / Unlock；跨任务访问控件时需要显示锁。
+ * 空指针通常表示控件尚未建立或该屏幕没有对应能力，不能假定所有显示设备功能相同。
+ */
+
 #include <esp_err.h>
 #include <esp_log.h>
 #include <material_symbols.h>
@@ -17,6 +23,7 @@
 
 #define TAG "Display"
 
+// 创建通知恢复定时器和电源管理锁；定时器回调也要取得显示锁才能改控件。
 LvglDisplay::LvglDisplay() {
     dynamic_glyph_cache_ = std::make_unique<DynamicGlyphCache>();
     // Notification timer
@@ -44,6 +51,8 @@ LvglDisplay::LvglDisplay() {
     }
 }
 
+// 替换浅色 / 深色主题的文字字体并重新绑定控件。
+// 更新期间保留旧字体引用，避免 LVGL 仍在使用旧指针时资源被释放。
 bool LvglDisplay::SetTextFont(std::shared_ptr<LvglFont> text_font) {
     if (text_font == nullptr || text_font->font() == nullptr) {
         return false;
@@ -75,6 +84,7 @@ bool LvglDisplay::SetTextFont(std::shared_ptr<LvglFont> text_font) {
     return true;
 }
 
+// 为当前字体安装 1 或 4 bpp 动态字形 fallback；缺少主题或字体时拒绝更新。
 bool LvglDisplay::AddTextGlyphs(const std::vector<TextGlyph>& glyphs, uint8_t bpp) {
     if (dynamic_glyph_cache_ == nullptr) {
         return false;
@@ -106,6 +116,7 @@ bool LvglDisplay::AddTextGlyphs(const std::vector<TextGlyph>& glyphs, uint8_t bp
     return dynamic_glyph_cache_->AddGlyphs(glyphs);
 }
 
+// 清空动态字形内容，保留字体接口供后续批次复用。
 void LvglDisplay::ClearTextGlyphs() {
     if (dynamic_glyph_cache_ == nullptr) {
         return;
@@ -143,6 +154,7 @@ LvglDisplay::~LvglDisplay() {
     }
 }
 
+// 设置普通状态文字；调用应在 SetupUI 创建状态标签之后发生。
 void LvglDisplay::SetStatus(const char* status) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetStatus('%s') called before SetupUI() - message will be lost!", status);
@@ -168,6 +180,7 @@ void LvglDisplay::ShowNotification(const std::string& notification, int duration
     ShowNotification(notification.c_str(), duration_ms);
 }
 
+// 临时隐藏状态并显示通知，使用单次定时器恢复；秒表 API 的时间单位是微秒。
 void LvglDisplay::ShowNotification(const char* notification, int duration_ms) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "ShowNotification('%s') called before SetupUI() - message will be lost!",
@@ -191,6 +204,8 @@ void LvglDisplay::ShowNotification(const char* notification, int duration_ms) {
     ESP_ERROR_CHECK(esp_timer_start_once(notification_timer_, duration_ms * 1000));
 }
 
+// 按需刷新静音、电池、网络与待命时钟，降低重复绘制和网络状态查询开销。
+// 只有时间已经有效时显示时钟；低电量语音通过应用调度，避免阻塞 GUI 更新。
 void LvglDisplay::UpdateStatusBar(bool update_all) {
     auto& app = Application::GetInstance();
     auto& board = Board::GetInstance();
@@ -308,6 +323,7 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
 
 void LvglDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {}
 
+// 显示睡眠 / 中性表情并清理聊天内容，实际硬件休眠由板级逻辑决定。
 void LvglDisplay::SetPowerSaveMode(bool on) {
     if (on) {
         SetChatMessage("system", "");
@@ -318,6 +334,8 @@ void LvglDisplay::SetPowerSaveMode(bool on) {
     }
 }
 
+// 在启用 LVGL 截图能力时抓取 RGB565 画面，再通过回调汇总 JPEG。
+// 截图缓冲区用完立即销毁，不留作持续录屏。
 bool LvglDisplay::SnapshotToJpeg(std::string& jpeg_data, int quality) {
 #if CONFIG_LV_USE_SNAPSHOT
     DisplayLockGuard lock(this);

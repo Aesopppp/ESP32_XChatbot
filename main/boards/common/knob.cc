@@ -1,3 +1,8 @@
+/*
+ * 旋转编码器包装：读取 A / B 相变化并回调旋转方向。
+ * OnRotate 的布尔参数为 true 表示 KNOB_RIGHT；旋转对应音量还是其他功能由调用方选择。
+ */
+
 #include "knob.h"
 
 static const char* TAG = "Knob";
@@ -42,6 +47,7 @@ void Knob::OnRotate(std::function<void(bool)> callback) {
     on_rotate_ = callback;
 }
 
+// 从组件事件读取方向，再调用板级业务回调；不在本层写死音量步长。
 void Knob::knob_callback(void* arg, void* data) {
     Knob* knob = static_cast<Knob*>(data);
     knob_event_t event = iot_knob_get_event(arg);

@@ -1,3 +1,9 @@
+/*
+ * ES8311 输出 + ES7210 输入的双器件音频适配，当前 VoCat 使用此组合。
+ * I2C 配置器件，I2S 搬运 PCM；输入回采标志 / 通道映射必须与板级接线和 AFE 格式一致。
+ * 输入 / 输出共用数据接口，开关时需要互斥保护，不能在播放时随意关闭麦克风。
+ */
+
 #ifndef _BOX_AUDIO_CODEC_H
 #define _BOX_AUDIO_CODEC_H
 
@@ -19,7 +25,9 @@ private:
 
     esp_codec_dev_handle_t output_dev_ = nullptr;
     esp_codec_dev_handle_t input_dev_ = nullptr;
+    // 输入 / 输出启停共用 I2S 数据接口，锁避免同时重配采样参数。
     std::mutex data_if_mutex_;
+    // 指定回采通道及其独立增益；麦克风增益与回采增益的用途不同。
     int reference_gain_channel_ = -1;
     float reference_gain_ = 0.0f;
 

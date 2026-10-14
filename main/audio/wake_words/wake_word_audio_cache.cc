@@ -1,3 +1,9 @@
+/*
+ * 本地唤醒音频环形缓存，使用 PSRAM 保存最近一段单声道 PCM。
+ * 用于可选的唤醒词音频编码，不是 SD 卡录音，也不是完整对话文件。
+ * 容量 / 偏移单位为采样点，读写位置由互斥锁保护。
+ */
+
 #include "wake_word_audio_cache.h"
 
 #include <algorithm>

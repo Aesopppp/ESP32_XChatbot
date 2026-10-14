@@ -1,3 +1,8 @@
+/*
+ * 有线以太网板级网络基础，统一链路 / 获取 IP 事件与网络接口。
+ * 属于保留的扩展实现；当前 VoCat 默认使用 Wi-Fi，不会因文件存在就启动以太网硬件。
+ */
+
 #ifndef ETHERNET_BOARD_H
 #define ETHERNET_BOARD_H
 

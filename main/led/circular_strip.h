@@ -1,3 +1,8 @@
+/*
+ * 环形 WS2812 灯带：统一颜色、滚动、呼吸、渐隐等状态动画。
+ * 每个像素颜色保存在 colors_，定时器回调在互斥锁内修改像素并刷新灯带。
+ */
+
 #ifndef _CIRCULAR_STRIP_H_
 #define _CIRCULAR_STRIP_H_
 
@@ -24,6 +29,7 @@ public:
     virtual ~CircularStrip();
 
     void OnStateChanged() override;
+    // 亮度参数按 0～255 的 RGB 分量尺度使用，不是菜单中的 0～100 屏幕 / 喇叭百分比。
     void SetBrightness(uint8_t default_brightness, uint8_t low_brightness);
     void SetAllColor(StripColor color);
     void SetSingleColor(uint8_t index, StripColor color);
@@ -41,6 +47,7 @@ private:
     int blink_counter_ = 0;
     int blink_interval_ms_ = 0;
     esp_timer_handle_t strip_timer_ = nullptr;
+    // 当前动画每个 tick 的步骤，切换动画时替换该回调并重置对应效果状态。
     std::function<void()> strip_callback_ = nullptr;
 
     uint8_t default_brightness_ = DEFAULT_BRIGHTNESS;

@@ -1,3 +1,9 @@
+/*
+ * 应用与网络传输之间的统一接口，管理音频包、回调及通用小智控制消息。
+ * 本文件默认 JSON 格式用于标准小智传输；ACOS 子类覆盖相关方法以使用 ACOS 事件协议。
+ * 网络回调不保证运行在主任务，涉及应用状态时应交给 Schedule 或主循环处理。
+ */
+
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
@@ -19,6 +25,7 @@ struct AudioStreamPacket {
     std::vector<uint8_t> payload;
 };
 
+// 标准小智 v2 二进制头，packed 保证线格式没有编译器填充字节。
 struct BinaryProtocol2 {
     uint16_t version;
     uint16_t type;          // Message type (0: OPUS, 1: JSON)
@@ -28,6 +35,7 @@ struct BinaryProtocol2 {
     uint8_t payload[];      // Payload data
 } __attribute__((packed));
 
+// 标准小智 v3 使用更短的二进制头；不是 ACOS 的裸 Opus 下行格式。
 struct BinaryProtocol3 {
     uint8_t type;
     uint8_t reserved;
@@ -68,6 +76,7 @@ public:
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;
+    // unique_ptr 将音频包所有权转给协议；返回语义由具体后端决定，不等同于云端处理完成。
     virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
     virtual void SendWakeWordDetected(const std::string& wake_word);
     virtual void SendStartListening(ListeningMode mode);

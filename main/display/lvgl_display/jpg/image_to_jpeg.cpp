@@ -1,3 +1,8 @@
+/*
+ * JPEG 编码适配：将摄像头帧或屏幕截图压缩为 JPEG。
+ * 可一次返回完整数据，也可通过回调分块输出；硬件加速仅在所选芯片和配置支持时使用。
+ */
+
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -16,6 +21,7 @@
 
 #define TAG "image_to_jpeg"
 
+// 先尝试普通 malloc，失败且配置允许时再尝试 PSRAM；函数名并不保证结果一定在 PSRAM。
 static void* malloc_psram(size_t size) {
     void* p = malloc(size);
     if (p)
@@ -35,6 +41,7 @@ static __always_inline uint8_t expand_6_to_8(uint8_t v) {
     return (uint8_t)((v << 2) | (v >> 4));
 }
 
+// 把灰度、YUV 和 RGB 帧转为编码器支持的格式，返回对齐缓冲；调用方用 jpeg_free_align 释放。
 static uint8_t* convert_input_to_encoder_buf(const uint8_t* src, uint16_t width, uint16_t height, v4l2_pix_fmt_t format,
                                              jpeg_pixel_format_t* out_fmt, int* out_size) {
     // GRAY 直接作为 JPEG_PIXEL_FORMAT_GRAY 输入
@@ -347,6 +354,7 @@ static bool encode_with_hw_jpeg(const uint8_t* src, size_t src_len, uint16_t wid
 }
 #endif // CONFIG_XIAOZHI_ENABLE_HARDWARE_JPEG_ENCODER
 
+// 软件路径先编码完整 JPEG，再调用输出回调；回调方式不等于编码期间逐块流式产出。
 static bool encode_with_esp_new_jpeg(const uint8_t* src, size_t src_len, uint16_t width, uint16_t height,
                                      v4l2_pix_fmt_t format, uint8_t quality, uint8_t** jpg_out, size_t* jpg_out_len,
                                      jpg_out_cb cb, void* cb_arg) {
@@ -424,6 +432,7 @@ static bool encode_with_esp_new_jpeg(const uint8_t* src, size_t src_len, uint16_
     return true;
 }
 
+// 完整数据接口：JPEG 输入可直接复制，其他格式先尝试可选硬件编码再回退软件；成功缓冲交给调用方释放。
 bool image_to_jpeg(uint8_t* src, size_t src_len, uint16_t width, uint16_t height, v4l2_pix_fmt_t format,
                    uint8_t quality, uint8_t** out, size_t* out_len) {
 #ifdef CONFIG_XIAOZHI_CAMERA_ALLOW_JPEG_INPUT
@@ -448,6 +457,8 @@ bool image_to_jpeg(uint8_t* src, size_t src_len, uint16_t width, uint16_t height
     return encode_with_esp_new_jpeg(src, src_len, width, height, format, quality, out, out_len, NULL, NULL);
 }
 
+// 回调中的图片指针只在回调期间借用；异步处理必须复制。
+// data=nullptr 且 len=0 表示输出结束，不能当作普通图片块入队。
 bool image_to_jpeg_cb(uint8_t* src, size_t src_len, uint16_t width, uint16_t height, v4l2_pix_fmt_t format,
                       uint8_t quality, jpg_out_cb cb, void* arg) {
 #ifdef CONFIG_XIAOZHI_CAMERA_ALLOW_JPEG_INPUT

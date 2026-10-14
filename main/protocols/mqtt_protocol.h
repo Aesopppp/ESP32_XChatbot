@@ -1,3 +1,9 @@
+/*
+ * 标准小智 MQTT / UDP 传输：MQTT 承载控制消息，UDP 承载加密音频。
+ * AES-CTR 密钥及 nonce 由服务 hello 提供；序列号用于过滤重复或迟到音频。
+ * 这是可选后端，与当前 ACOS WebSocket 直连路径的认证、消息与空闲策略不同。
+ */
+
 #ifndef MQTT_PROTOCOL_H
 #define MQTT_PROTOCOL_H
 
@@ -36,12 +42,14 @@ public:
 
 private:
     // Alive flag for safe scheduled callbacks - set to false in destructor
+    // 已派发到应用主任务的回调先检查存活标志，避免析构后继续访问 this。
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
     
     EventGroupHandle_t event_group_handle_;
 
     std::string publish_topic_;
 
+    // 保护音频通道、会话序列等状态；加密操作使用另一个锁。
     mutable std::mutex channel_mutex_;
     std::mutex crypto_mutex_;
     std::unique_ptr<Mqtt> mqtt_;
@@ -49,7 +57,9 @@ private:
     // holding channel_mutex_; the UDP receive callback (run on the modem's
     // AT event task) also needs that mutex, so holding it across a blocking
     // Send() would stall AT response parsing and cause spurious timeouts.
+    // 发送前在锁内复制 shared_ptr，再在锁外 Send，避免阻塞接收 AT 事件也需要的通道锁。
     std::shared_ptr<Udp> udp_;
+    // PSA 密钥句柄与 IV / nonce 配合加密；销毁密钥需保持与加密操作互斥。
     psa_key_id_t aes_key_id_ = PSA_KEY_ID_NULL;
     std::string aes_nonce_;
     std::string udp_server_;

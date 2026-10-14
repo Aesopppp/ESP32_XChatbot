@@ -1,3 +1,9 @@
+/*
+ * 无需独立 I2C codec 的 I2S / PDM 音频实现，供其他硬件组合复用。
+ * NoAudioCodec 指没有寄存器控制的 codec，并非没有音频；读写直接通过 I2S 驱动完成。
+ * Duplex 共用时钟，Simplex 分离输入 / 输出，PDM 变体使用数字麦克风格式。
+ */
+
 #ifndef _NO_AUDIO_CODEC_H
 #define _NO_AUDIO_CODEC_H
 

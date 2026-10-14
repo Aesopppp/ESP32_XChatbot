@@ -1,3 +1,9 @@
+/*
+ * Wi-Fi 板级网络基础：连接已保存热点、上报事件、失败时进入配网。
+ * 手机配网页面由 Wi-Fi 配网组件提供，板级代码负责选择热点名和进入 / 退出配网。
+ * Wi-Fi 建链与云端 WebSocket 是两层独立流程，连上热点并不表示 ACOS 已完成认证。
+ */
+
 #include "wifi_board.h"
 
 #include "display.h"
@@ -51,6 +57,7 @@ std::string WifiBoard::GetBoardType() {
 
 // 初始化配网管理器并桥接网络事件；成功联网之后的 ACOS 连接由 Application 决定。
 // AP 页面由依赖中的 WifiManager 提供，本模块负责入口、状态及屏幕提示。
+// 启动 Wi-Fi 网络流程；保存的热点、强制配网标志和连接事件决定后续分支。
 void WifiBoard::StartNetwork() {
     auto& wifi_manager = WifiManager::GetInstance();
 
@@ -100,6 +107,7 @@ void WifiBoard::StartNetwork() {
 }
 
 // 有保存的 SSID 就启动 STA，首次连接 60 秒超时转配网；无 SSID 则直接进入配网。
+// 向 Wi-Fi 管理器发起连接；成功 / 失败结果通过网络事件异步通知。
 void WifiBoard::TryWifiConnect() {
     auto& ssid_manager = SsidManager::GetInstance();
     bool have_ssid = !ssid_manager.GetSsidList().empty();
@@ -173,6 +181,7 @@ void WifiBoard::OnWifiConnectTimeout(void* arg) {
 
 // 按 Kconfig 选择设备热点网页或 Blufi；热点名和页面地址由管理器生成。
 // 提示音/UI 更新通过 Schedule 交给主循环，避免网络回调直接执行应用操作。
+// 启动配网流程，与只扫描热点不同；配网组件负责 AP 和配置服务。
 void WifiBoard::StartWifiConfigMode() {
     in_config_mode_ = true;
     // 网络任务只投递状态变更，应用状态和音频副作用在主循环执行。
@@ -201,6 +210,7 @@ void WifiBoard::StartWifiConfigMode() {
 
 // 从对话中重新配网：先完成协议释放，再停止采集/旧播放，最后后台切换网络。
 // 不清除原 SSID 列表或 ACOS 设置；网页验证新网络成功之后才保存凭据。
+// 显式进入重新配网入口，处理当前对话 / 网络状态后交给配置流程。
 void WifiBoard::EnterWifiConfigMode() {
     if (IsInWifiConfigMode() || config_request_pending_.exchange(true))
         return;
@@ -289,6 +299,7 @@ std::string WifiBoard::GetBoardJson() {
     return json;
 }
 
+// 将应用的功耗偏好映射为 Wi-Fi modem 省电级别，语音传输需要兼顾响应延迟。
 void WifiBoard::SetPowerSaveLevel(PowerSaveLevel level) {
     WifiPowerSaveLevel wifi_level;
     switch (level) {

@@ -32,6 +32,7 @@ public:
     AudioCodec();
     virtual ~AudioCodec();
     
+    // 音量百分比写入 NVS 并由具体 codec 应用到硬件；0 表示静音。
     virtual void SetOutputVolume(int volume);
     virtual void SetInputGain(float gain);
     virtual void EnableInput(bool enable);
@@ -39,6 +40,8 @@ public:
 
     virtual void OutputData(std::vector<int16_t>& data);
     virtual bool InputData(std::vector<int16_t>& data);
+    // 通用实现恢复并校验音量；输入 / 输出开关由具体硬件和音频服务另行管理。
+    // VoCat 的开机默认值在板级另有处理。
     virtual void Start();
 
     inline bool duplex() const { return duplex_; }
@@ -57,6 +60,7 @@ protected:
     i2s_chan_handle_t rx_handle_ = nullptr;
 
     bool duplex_ = false;
+    // 输入中是否包含扬声器回采参考，决定 AFE 的麦克风 / 参考通道格式。
     bool input_reference_ = false;
     bool input_enabled_ = false;
     bool output_enabled_ = false;
@@ -64,6 +68,7 @@ protected:
     int output_sample_rate_ = 0;
     int input_channels_ = 1;
     int output_channels_ = 1;
+    // 成员初值不是设备最终开机值，Start 和 VoCat 的 NVS 策略会再次决定音量。
     int output_volume_ = 70;
     float input_gain_ = 0.0;
 

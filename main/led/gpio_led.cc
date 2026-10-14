@@ -1,3 +1,8 @@
+/*
+ * 普通 GPIO 指示灯，通过 LEDC PWM 实现亮度、闪烁和呼吸效果。
+ * 渐变结束在中断中发生，只通知专用任务；任务中再处理下一段渐变和互斥锁。
+ */
+
 #include "gpio_led.h"
 #include "application.h"
 #include "device_state.h"
@@ -97,6 +102,7 @@ GpioLed::~GpioLed() {
 }
 
 
+// 将 0～100 的百分比转换为 13 位 PWM 占空比；此函数仅更新目标值。
 void GpioLed::SetBrightness(uint8_t brightness) {
     if (brightness == 100) {
         duty_ = LEDC_DUTY;
@@ -141,6 +147,7 @@ void GpioLed::StartContinuousBlink(int interval_ms) {
     StartBlinkTask(BLINK_INFINITE, interval_ms);
 }
 
+// 一次闪烁包含亮 / 灭两个阶段，因此计数为次数的两倍；负值用于持续闪烁。
 void GpioLed::StartBlinkTask(int times, int interval_ms) {
     if (!ledc_initialized_) {
         return;
@@ -155,6 +162,7 @@ void GpioLed::StartBlinkTask(int times, int interval_ms) {
     esp_timer_start_periodic(blink_timer_, interval_ms * 1000);
 }
 
+// 在定时器任务中切换亮灭，有限次数归零后停止定时器，不阻塞应用主循环。
 void GpioLed::OnBlinkTimer() {
     std::lock_guard<std::mutex> lock(mutex_);
     blink_counter_--;
@@ -194,6 +202,7 @@ void GpioLed::OnFadeEnd() {
                     ledc_channel_.channel, LEDC_FADE_NO_WAIT);
 }
 
+// LEDC 中断上下文只发送任务通知，不能在这里获取普通互斥锁或执行复杂状态逻辑。
 bool IRAM_ATTR GpioLed::FadeCallback(const ledc_cb_param_t *param, void *user_arg) {
     if (param->event == LEDC_FADE_END_EVT) {
         auto led = static_cast<GpioLed*>(user_arg);
@@ -204,6 +213,7 @@ bool IRAM_ATTR GpioLed::FadeCallback(const ledc_cb_param_t *param, void *user_ar
     return true;
 }
 
+// 把设备状态映射到灯光；聆听时还参考 VAD，只作提示，不据此确认用户打断。
 void GpioLed::OnStateChanged() {
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();
@@ -254,6 +264,7 @@ void GpioLed::OnStateChanged() {
     }
 }
 
+// 等待渐变结束通知，在任务上下文中启动反向渐变，形成连续呼吸效果。
 void GpioLed::EventTask(void* arg) {
     GpioLed* led = static_cast<GpioLed*>(arg);
 

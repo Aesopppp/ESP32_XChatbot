@@ -1,3 +1,8 @@
+/*
+ * USB 主机 RNDIS 网卡的可选网络适配。
+ * 以 USB 网络设备作为联网通道，与串口烧录或 USB 麦克风功能不同；依赖对应芯片和组件。
+ */
+
 #ifndef RNDIS_BOARD_H
 #define RNDIS_BOARD_H
 

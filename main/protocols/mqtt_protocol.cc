@@ -1,3 +1,9 @@
+/*
+ * 标准小智 MQTT / UDP 传输：MQTT 承载控制消息，UDP 承载加密音频。
+ * AES-CTR 密钥及 nonce 由服务 hello 提供；序列号用于过滤重复或迟到音频。
+ * 这是可选后端，与当前 ACOS WebSocket 直连路径的认证、消息与空闲策略不同。
+ */
+
 #include "mqtt_protocol.h"
 #include "application.h"
 #include "board.h"

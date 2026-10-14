@@ -1,3 +1,9 @@
+/*
+ * 无需独立 I2C codec 的 I2S / PDM 音频实现，供其他硬件组合复用。
+ * NoAudioCodec 指没有寄存器控制的 codec，并非没有音频；读写直接通过 I2S 驱动完成。
+ * Duplex 共用时钟，Simplex 分离输入 / 输出，PDM 变体使用数字麦克风格式。
+ */
+
 #include "no_audio_codec.h"
 
 #include <esp_log.h>
@@ -215,6 +221,7 @@ NoAudioCodecSimplex::NoAudioCodecSimplex(int input_sample_rate, int output_sampl
     ESP_LOGI(TAG, "Simplex channels created");
 }
 
+// 将 16 位 PCM 按软件音量缩放并转为 32 位 I2S 槽位；返回实际写入采样数，不是字节数。
 int NoAudioCodec::Write(const int16_t* data, int samples) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     std::vector<int32_t> buffer(samples);
@@ -238,6 +245,7 @@ int NoAudioCodec::Write(const int16_t* data, int samples) {
     return bytes_written / sizeof(int32_t);
 }
 
+// 从 32 位数字麦克风槽位取样、移位和限幅为 16 位 PCM；读失败 / 超时返回 0。
 int NoAudioCodec::Read(int16_t* dest, int samples) {
     size_t bytes_read;
     constexpr uint32_t kReadTimeoutMs = 200;
@@ -255,6 +263,7 @@ int NoAudioCodec::Read(int16_t* dest, int samples) {
     return samples;
 }
 
+// 互斥保护 RX 启停，重复设置为空操作；这种直连后端不通过外置 codec 寄存器管理输入。
 void NoAudioCodec::EnableInput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (enable == input_enabled_) {
@@ -268,6 +277,7 @@ void NoAudioCodec::EnableInput(bool enable) {
     AudioCodec::EnableInput(enable);
 }
 
+// 互斥保护 TX 启停；暂停输出与删除 I2S 通道是不同操作。
 void NoAudioCodec::EnableOutput(bool enable) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (enable == output_enabled_) {

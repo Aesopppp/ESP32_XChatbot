@@ -1,3 +1,8 @@
+/*
+ * USB 主机 RNDIS 网卡的可选网络适配。
+ * 以 USB 网络设备作为联网通道，与串口烧录或 USB 麦克风功能不同；依赖对应芯片和组件。
+ */
+
 #include "rndis_board.h"
 #include "display.h"
 #include "application.h"
@@ -27,6 +32,8 @@ std::string RndisBoard::GetBoardType() {
     return "rndis";
 }
 
+// 准备 USB Host / CDC / RNDIS 与 TCP/IP，最后阻塞等待获得 IP。
+// 这是备用板型路径，不应从当前 VoCat 的实时音频回调调用。
 void RndisBoard::StartNetwork() {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -57,6 +64,7 @@ void RndisBoard::StartNetwork() {
 }
  
 
+// 将 USB 网络连接事件桥接到 Board，并用 GOT_IP 事件位解除初始化等待。
 void RndisBoard::iot_event_handle(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == IOT_ETH_EVENT) {
@@ -115,6 +123,7 @@ void RndisBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
     network_event_callback_ = std::move(callback);
 }
 
+// 创建匹配 USB 设备的 RNDIS 驱动和网络接口，VID / PID 参数控制设备选择。
 void RndisBoard::install_rndis(uint16_t idVendor, uint16_t idProduct, const char *netif_name)
 {
     esp_err_t ret = ESP_OK;

@@ -1,3 +1,9 @@
+/*
+ * 显示抽象接口：让应用通过统一方法更新状态、表情、字幕及资源。
+ * 屏幕只呈现应用状态；真正的录音、播放和联网状态由 Application / AudioService / Protocol 控制。
+ * 部分硬件没有屏幕或不支持某项能力，基类提供空操作；锁的实现由具体显示后端决定。
+ */
+
 #include "display.h"
 #include <esp_err.h>
 #include <esp_log.h>
@@ -38,10 +44,12 @@ void Display::SetChatMessage(const char* role, const char* content) {
     ESP_LOGW(TAG, "     %s", content);
 }
 
+// 基类通过空系统消息表达清屏；有聊天列表的子类可实现完整列表清理。
 void Display::ClearChatMessages() {
     // Default empty implementation, override in subclasses if needed
 }
 
+// 保存当前主题引用及 NVS 中的主题名称，主题对象本身由调用方管理。
 void Display::SetTheme(Theme* theme) {
     current_theme_ = theme;
     Settings settings("display", true);

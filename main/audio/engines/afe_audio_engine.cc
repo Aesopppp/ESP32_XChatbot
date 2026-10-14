@@ -1,3 +1,9 @@
+/*
+ * 当前 ESP32-S3 的 AFE 音频处理路径：AEC、VAD 和本地唤醒。
+ * Feed 提交麦克风与回采通道，ProcessingTask 获取处理结果，再输出定长 PCM 与检测事件。
+ * 跨任务开关 / 清理请求延后到处理任务执行，generation 用于拒绝旧会话的迟到结果。
+ */
+
 #include "afe_audio_engine.h"
 
 #include <cassert>

@@ -1,3 +1,8 @@
+/*
+ * LVGL 内存池的 PSRAM 分配入口。
+ * 用于图形对象和资源的大块内存，分配失败会记录日志；DMA 缓冲区仍需遵守显示驱动的能力要求。
+ */
+
 #ifndef LVGL_PSRAM_POOL_H
 #define LVGL_PSRAM_POOL_H
 

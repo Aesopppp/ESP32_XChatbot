@@ -1,3 +1,9 @@
+/*
+ * MultiNet 自定义命令词检测器，可作为本地唤醒的一种可选软件实现。
+ * 需要对应语言模型和命令表；当前 VoCat 固定的“你好小益”WakeNet 模型并不由本文件改名生成。
+ * 支持交错原始 PCM 或单声道处理结果；可选回溯音频使用 PSRAM 缓存再单独编码。
+ */
+
 #include "custom_wake_word.h"
 #include "audio_service.h"
 #include "system_info.h"
@@ -34,6 +40,7 @@ CustomWakeWord::~CustomWakeWord() {
     }
 }
 
+// 从资源 index.json 读取 MultiNet 语言、阈值、检测时窗及命令表，解析完删除临时 JSON 树。
 void CustomWakeWord::ParseWakenetModelConfig() {
     // Read index.json
     auto& assets = Assets::GetInstance();
@@ -82,6 +89,7 @@ void CustomWakeWord::ParseWakenetModelConfig() {
 }
 
 
+// 借用传入模型或自行加载 model 分区；只有自行加载时承担模型列表释放责任。
 bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) {
     codec_ = codec;
     commands_.clear();
@@ -143,6 +151,7 @@ void CustomWakeWord::Start() {
     running_ = true;
 }
 
+// 先关闭运行标志，再持有输入锁清理拼块数据，避免旧输入继续参与下一轮检测。
 void CustomWakeWord::Stop() {
     running_ = false;
 
@@ -158,6 +167,7 @@ void CustomWakeWord::FeedMono(const int16_t* data, size_t samples) {
     FeedSamples(data, samples, true);
 }
 
+// mono=true 时已是处理后的单声道；否则从交错输入取首通道，凑齐模型块再检测。
 void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono) {
     if (multinet_model_data_ == nullptr || data == nullptr || samples == 0) {
         return;
@@ -222,6 +232,8 @@ size_t CustomWakeWord::GetFeedSize() {
     return multinet_->get_samp_chunksize(multinet_model_data_);
 }
 
+// 后台任务将短时缓存编码为 Opus，栈放 PSRAM、任务控制块放内部 RAM。
+// 队尾空包表示结束；调用者需避免编码未结束时再次启动或销毁对象。
 void CustomWakeWord::EncodeWakeWordData() {
     const size_t stack_size = 4096 * 7;
     wake_word_opus_.clear();
@@ -299,6 +311,7 @@ void CustomWakeWord::EncodeWakeWordData() {
     }, "encode_wake_word", stack_size, this, 2, wake_word_encode_task_stack_, wake_word_encode_task_buffer_);
 }
 
+// 等待编码结果后取走首包；空包返回 false 表示结束，属于阻塞接口。
 bool CustomWakeWord::GetWakeWordOpus(std::vector<uint8_t>& opus) {
     std::unique_lock<std::mutex> lock(wake_word_mutex_);
     wake_word_cv_.wait(lock, [this]() {

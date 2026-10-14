@@ -1,3 +1,9 @@
+/*
+ * NT26 UART 以太网蜂窝模块的网络适配与注册状态查询。
+ * 以事件和就绪超时管理联网，MRDY / SRDY 等握手引脚属于该模块硬件约定。
+ * 保留的扩展路径，不参与当前 VoCat 默认 Wi-Fi 连接。
+ */
+
 #include "nt26_board.h"
 #include <esp_log.h>
 #include <cJSON.h>
@@ -54,12 +60,14 @@ void Nt26Board::OnNetworkEvent(NetworkEvent event, const std::string& data) {
     }
 }
 
+// 30 秒内未完成网络就绪时上报超时；这是启动网络的超时，与对话空闲超时无关。
 void Nt26Board::OnNetworkReadyTimeout(void* arg) {
     auto* self = static_cast<Nt26Board*>(arg);
     ESP_LOGW(TAG, "Network ready timeout");
     self->OnNetworkEvent(NetworkEvent::ModemErrorTimeout, "网络连接超时");
 }
 
+// 创建 UART 以太网调制解调器，将注册、SIM 和连接事件映射为统一 Board 网络事件。
 void Nt26Board::StartNetwork() {
     OnNetworkEvent(NetworkEvent::ModemDetecting);
 
@@ -133,6 +141,7 @@ void Nt26Board::StartNetwork() {
     OnNetworkEvent(NetworkEvent::Connecting);
 }
 
+// 把 Stop 放到应用调度中执行，避免在 modem 自身事件回调内停止并等待自己。
 void Nt26Board::ScheduleAsyncStop() {
     Application::GetInstance().Schedule([this]() {
         if (modem_) {
@@ -150,6 +159,7 @@ NetworkInterface* Nt26Board::GetNetwork() {
     return &network;
 }
 
+// 根据信号强度分档显示，未初始化或未知信号时显示无网络图标。
 const char* Nt26Board::GetNetworkStateIcon() {
     if (modem_ == nullptr || !modem_->IsInitialized()) {
         return MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
@@ -169,6 +179,7 @@ const char* Nt26Board::GetNetworkStateIcon() {
     return MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
 }
 
+// 这里调整 CPU 频率锁，避免高性能传输期间降频；不会直接让会话进入待唤醒。
 void Nt26Board::SetPowerSaveLevel(PowerSaveLevel level) {
     if (level == current_power_level_)
         return;

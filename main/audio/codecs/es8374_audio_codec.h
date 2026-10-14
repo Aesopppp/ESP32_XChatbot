@@ -1,3 +1,9 @@
+/*
+ * ES8374 音频器件的备用 esp_codec_dev 适配。
+ * 负责 I2C 控制、I2S PCM、输入 / 输出开关及硬件音量；不处理 Opus 或云端对话。
+ * 只有板级选择此实现时才启用，不能因型号相近就套用当前 VoCat 的双器件驱动。
+ */
+
 #ifndef _ES8374_AUDIO_CODEC_H
 #define _ES8374_AUDIO_CODEC_H
 

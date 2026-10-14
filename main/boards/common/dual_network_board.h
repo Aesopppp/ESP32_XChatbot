@@ -1,3 +1,8 @@
+/*
+ * Wi-Fi / ML307 双网络选择器，向当前选中的 Board 转发网络操作。
+ * 网络类型保存在 NVS；切换涉及网络对象和设备生命周期，不是两个通道同时传输音频。
+ */
+
 #ifndef DUAL_NETWORK_BOARD_H
 #define DUAL_NETWORK_BOARD_H
 

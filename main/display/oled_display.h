@@ -1,3 +1,9 @@
+/*
+ * 单色 OLED 的备用显示实现，支持 128×64 和 128×32 两种布局。
+ * 继承 LVGL 公共状态栏逻辑，用字体符号显示表情；不承担当前 VoCat 的彩色动画界面。
+ * 构造时接入显示驱动，SetupUI 再创建控件，避免在资源和主题尚未就绪时使用字体。
+ */
+
 #ifndef OLED_DISPLAY_H
 #define OLED_DISPLAY_H
 

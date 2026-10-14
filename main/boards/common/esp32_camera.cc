@@ -1,3 +1,9 @@
+/*
+ * esp_camera 驱动的摄像头适配，实现抓帧、RGB565 转 JPEG 和图像解释请求。
+ * 图像压缩可在独立线程中完成；帧缓冲来自摄像头驱动，需按驱动要求归还，不能直接 free。
+ * 当前 VoCat 语音功能不要求安装摄像头，只有板级创建此对象时才启用。
+ */
+
 #include "sdkconfig.h"
 
 #include <esp_heap_caps.h>
@@ -73,6 +79,7 @@ void Esp32Camera::SetExplainUrl(const std::string& url, const std::string& token
     explain_token_ = token;
 }
 
+// 先等待上一轮编码线程，再丢弃旧帧取得最新画面；帧在下一次采集或析构时归还驱动。
 bool Esp32Camera::Capture() {
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
@@ -126,6 +133,7 @@ bool Esp32Camera::Capture() {
         }
 
         // Allocate separate buffer for preview display
+        // 预览必须有独立像素副本；显示包装接管其释放，不能把即将归还驱动的帧地址直接给 LVGL。
         uint8_t* preview_data =
             (uint8_t*)heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (preview_data != nullptr) {
@@ -174,6 +182,8 @@ bool Esp32Camera::SetSwapBytes(bool enabled) {
     return true;
 }
 
+// 将当前帧编码为 JPEG 并提交到配置的图像解释服务；HTTP 返回文本或错误。
+// 这条可选视觉链路独立于 ACOS 麦克风 Opus 上传，不能在实时音频任务中阻塞调用。
 std::expected<std::string, std::string> Esp32Camera::Explain(const std::string& question) {
     if (explain_url_.empty()) {
         return std::unexpected("Image explain URL or token is not set");

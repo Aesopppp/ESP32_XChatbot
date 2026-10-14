@@ -1,3 +1,9 @@
+/*
+ * esp_video / V4L2 摄像头适配，管理视频设备、mmap 帧和 JPEG 编码。
+ * 与 Esp32Camera 属于不同采集后端；是否编译取决于芯片与摄像头组件配置。
+ * 采集帧、映射缓冲和编码线程的寿命需分别管理，不能把映射地址当普通堆内存释放。
+ */
+
 #pragma once
 #include "sdkconfig.h"
 

@@ -16,6 +16,7 @@
 
 #include "cjson_utils.h"
 
+// MCP 图片返回值包装：对原始图片字节做 Base64 并记录 MIME 类型。
 class ImageContent {
 private:
     std::string encoded_data_;
@@ -60,6 +61,7 @@ using ToolCallback = std::function<ToolResult(const PropertyList&)>;
 
 enum PropertyType { kPropertyTypeBoolean, kPropertyTypeInteger, kPropertyTypeString };
 
+// 单个工具参数的类型、默认值及取值边界；整数与字符串限制用于校验网络输入。
 class Property {
 private:
     std::string name_;
@@ -139,6 +141,7 @@ public:
 
     // Validate a value against this property's constraints without setting it.
     // Returns empty string on success, or an error message on failure.
+    // 返回空字符串表示通过，非空字符串说明错误；不在这里写入或执行工具。
     std::string Validate(const std::variant<bool, int, std::string>& val) const {
         if (type_ == kPropertyTypeInteger && std::holds_alternative<int>(val)) {
             int v = std::get<int>(val);
@@ -161,6 +164,7 @@ public:
     }
 
     template <typename T>
+    // 先校验类型与边界再更新参数，错误通过 expected 返回，避免非法值进入回调。
     inline std::expected<void, std::string> set_value(const T& value) {
         auto error = Validate(value);
         if (!error.empty()) {
@@ -207,6 +211,7 @@ public:
     }
 };
 
+// 工具参数集合，生成 JSON Schema 并把没有默认值的参数列为 required。
 class PropertyList {
 private:
     std::vector<Property> properties_;
@@ -257,6 +262,7 @@ public:
     }
 };
 
+// 一个具名工具及其执行回调；服务端使用 Schema 了解可调用动作和参数。
 class McpTool {
 private:
     std::string name_;
@@ -346,6 +352,7 @@ public:
         return json_str != nullptr ? std::string(json_str.get()) : std::string();
     }
 
+    // 执行回调并封装 MCP content；返回 ImageContent* 或 cJSON* 时，本方法接管其销毁责任。
     std::expected<std::string, std::string> Call(const PropertyList& properties) {
         auto callback_result = callback_(properties);
         if (!callback_result) {
@@ -420,6 +427,8 @@ public:
     }
 };
 
+// 设备端 MCP 注册与派发中心；协议必须明确支持 MCP 才能与云端互通。
+// 当前 ACOS 未因存在此类就自动获得标准小智 MCP 的兼容能力。
 class McpServer {
 public:
     using ResponseSender = std::function<void(const std::string&)>;
@@ -435,6 +444,7 @@ public:
                  const PropertyList& properties, ToolCallback callback);
     void AddUserOnlyTool(const std::string& name, const std::string& description,
                          const PropertyList& properties, ToolCallback callback);
+    // 借用本次 JSON 做校验与派发，异步工具流程必须复制必要字段并保持响应通道有效。
     void ParseMessage(const cJSON* json, ResponseSender response_sender = nullptr);
     void ParseMessage(const std::string& message, ResponseSender response_sender = nullptr);
 
@@ -455,6 +465,7 @@ private:
     void DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments,
                     ResponseSender response_sender);
 
+    // 服务单独拥有已注册的工具；工具回调捕获的硬件对象需在可调用期间存活。
     std::vector<std::unique_ptr<McpTool>> tools_;
 };
 
